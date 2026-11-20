@@ -1,0 +1,38 @@
+/* Общая палитра лагеря и рейда. */
+:root {
+  --bg: #101118;
+  --surface: #191a23;
+  --raised: #22232f;
+  --edge: #353542;
+  --ink: #f5eee5;
+  --muted: #b0aaba;
+  --gold: #ffd092;
+  --gold-hover: #ffe0b3;
+  --display: Georgia, "Times New Roman", serif;
+}
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #0a0a0e;
+  font-family: "Segoe UI", Arial, sans-serif;
+  color: var(--ink);
+}
+#stage {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1280px;
+  height: 720px;
+  transform: translate(-50%, -50%) scale(var(--stage-scale, 1));
+}
+#game-canvas { position: absolute; inset: 0; background: var(--bg); }
+.screen {
+  position: absolute;
+  inset: 0;
+  display: none;
+  background: radial-gradient(ellipse at 85% 0, #23212c, var(--bg) 67%);
+}
+.screen.active { display: block; }
+button, input { font: inherit; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }

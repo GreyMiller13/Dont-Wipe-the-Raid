@@ -1,0 +1,427 @@
+// DWR :: chars.js — покадровые герои, составные спрайты врагов и контуры целей.
+"use strict";
+window.DWR = window.DWR || {};
+
+DWR.Chars = (function () {
+  const BODY_PX = 72, BOTTOM_PAD = 3;
+  const WALK_FRAMES = 16, FALL_FRAMES = 12;
+  // За цикл опорная стопа проходит две длины шага в координатах карты.
+  const WALK_CYCLE = { warrior: 48 / 72, goblinW: 36 / 64, goblinKing: 32 / 64, skeletonW: 40 / 74 };
+  const RANGER_CLIPS = { multishot: "ranger-multishot", preciseShot: "ranger-precise" };
+  const FALLEN_BOUNDS = { warrior: [64, 105, 113], priest: [54, 97, 114], ranger: [54, 103, 114] };
+  // Внешний контур goblinK.png в пикселях позволяет опереть упавшего короля на спину.
+  const KING_HULL = [
+    [0, 61], [12, 23], [14, 17], [16, 14], [19, 11], [28, 5], [33, 2], [36, 1], [40, 0], [45, 0],
+    [46, 1], [66, 27], [68, 30], [68, 36], [66, 39], [45, 63], [26, 64], [14, 64], [0, 63]
+  ];
+  const ARM_PIVOTS = {
+    goblinW: [18, 20], goblinA: [17, 22], goblinKing: [21, 24],
+    skeletonW: [7, 22], skeletonA: [17, 24], skeletonM: [24, 28], lich: [40, 32]
+  };
+  const BOW_ANGLE = -1.05;
+  const BOWS = { goblinA: [27, 40, BOW_ANGLE], skeletonA: [26, 41, -0.65] };
+  const STAFFS = { skeletonM: [45, 18, 0.24], lich: [62, 11, 0.25] };
+  // Время позы, углы плеча, предплечья, клинка и наклона корпуса.
+  const WARRIOR_POSES = [
+    [0, 1.79, 0.90, 0.26, 0],
+    [0.24, 2.42, -1.33, -2.30, -0.045],
+    [DWR.CONFIG.battle.warriorContact, 0.75, -0.08, -0.12, 0.070],
+    [0.69, 1.19, 0.51, 0.59, 0.045],
+    [1, 1.79, 0.90, 0.26, 0]
+  ];
+  const WARRIOR_SHOULDER = [70.5, 64.5];
+  const OUTLINE_OFFSETS = [[-4, 0], [4, 0], [0, -4], [0, 4], [-3, -3], [-3, 3], [3, -3], [3, 3]];
+  const smooth = t => t * t * (3 - 2 * t);
+  const clamp = t => Math.max(0, Math.min(1, t));
+  const facing = unit => unit.facing === -1 ? -1 : 1;
+  let outlineBuffers, frameMixer;
+
+  function armPoint(kind, x, y, angle) {
+    const [px, py] = ARM_PIVOTS[kind], dx = x - px, dy = y - py;
+    return [px + dx * Math.cos(angle) - dy * Math.sin(angle),
+      py + dx * Math.sin(angle) + dy * Math.cos(angle)];
+  }
+
+  function rigPoint(unit, x, y, angle) {
+    const body = DWR.Assets.enemyLayers?.[unit.kind]?.body;
+    if (!body?.naturalWidth) return null;
+    const point = armPoint(unit.kind, x, y, angle);
+    const scale = unit.h / body.naturalHeight;
+    return { x: unit.x + (point[0] - body.naturalWidth / 2) * scale * facing(unit),
+      y: (point[1] - body.naturalHeight) * scale };
+  }
+
+  function enemyBowRelease(unit) {
+    const bow = BOWS[unit.kind];
+    return bow ? rigPoint(unit, ...bow) : null;
+  }
+
+  function staffPoint(unit, attack = unit.attack) {
+    const staff = STAFFS[unit.kind];
+    return staff ? rigPoint(unit, staff[0], staff[1], attack ? enemyMotion(unit.kind, attack).arm : 0) : null;
+  }
+
+  function enemyMotion(kind, attack) {
+    const { t, windup, recovery, hit, heavy, ritual } = attack;
+    const prep = clamp(t / windup);
+    const after = hit ? clamp((t - windup) / recovery) : 0;
+    const follow = 1 - smooth(after);
+    if (BOWS[kind]) {
+      const recoil = 0.10 * Math.sin(after * Math.PI) * follow;
+      return { arm: BOWS[kind][2] * smooth(prep) * follow - recoil, lean: 0, shift: 0,
+        pull: hit ? 0 : smooth(prep), showArrow: !hit && prep > 0.28 };
+    }
+    if (STAFFS[kind]) {
+      const lift = ritual ? Math.sin(prep * Math.PI) * 0.43
+        : smooth(prep) * follow * (attack.buffing ? 0.37 : STAFFS[kind][2]);
+      return { arm: -lift, lean: 0, shift: 0 };
+    }
+    const king = kind === "goblinKing";
+    const turn = heavy ? 0.75 : 0.62;
+    const raised = heavy ? -1.63 : king ? -0.85 : -0.99;
+    const finish = heavy ? 0.63 : king ? 0.36 : 0.52;
+    const winding = prep < turn;
+    const phase = smooth(winding ? prep / turn : (prep - turn) / (1 - turn));
+    const arm = winding ? raised * phase : raised + (finish - raised) * phase;
+    const thrust = winding ? -0.52 * phase : -0.52 + 1.52 * phase;
+    const recoil = Math.sin(after * Math.PI) * follow;
+    return { arm: arm * follow + recoil * 0.12,
+      lean: thrust * follow * (heavy ? 0.15 : 0.14),
+      shift: thrust * follow * (heavy ? 0.071 : 0.045) };
+  }
+
+  function drawEnemyBow(ctx, kind, motion) {
+    const [x, y] = armPoint(kind, 27, 40, motion.arm);
+    const pullX = -5 - 11 * motion.pull;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(0.84 * (1 - motion.arm / BOW_ANGLE));
+    ctx.lineCap = "square";
+    ctx.beginPath();
+    ctx.moveTo(-5, -14); ctx.lineTo(pullX, 0); ctx.lineTo(-5, 14);
+    ctx.strokeStyle = "#c5b99a"; ctx.lineWidth = 0.65; ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-5, -14); ctx.lineTo(-3, -10); ctx.lineTo(0, -5);
+    ctx.lineTo(0, 5); ctx.lineTo(-3, 10); ctx.lineTo(-5, 14);
+    ctx.strokeStyle = "#4d2c20"; ctx.lineWidth = 2.4; ctx.stroke();
+    ctx.strokeStyle = "#c28b53"; ctx.lineWidth = 1.1; ctx.stroke();
+    if (motion.showArrow) {
+      ctx.fillStyle = "#bbaa84"; ctx.fillRect(pullX, -0.5, 22, 1);
+      ctx.fillStyle = "#fff1c8"; ctx.fillRect(pullX + 20, -1, 3, 2);
+    }
+    ctx.restore();
+  }
+
+  function hitFlash(ctx, unit) {
+    if (unit.flash > 0) ctx.filter = "brightness(" + (1 + unit.flash * 0.6) + ")";
+  }
+
+  function walkProgress(unit) {
+    return (unit.walkDistance / (unit.h * (WALK_CYCLE[unit.kind] ?? 0.6))) % 1;
+  }
+
+  function walkFrame(unit) {
+    return Math.min(WALK_FRAMES - 1, Math.floor(clamp(unit.poseT || 0) * WALK_FRAMES));
+  }
+
+  function drawEnemyWalk(ctx, unit, atlas, img) {
+    const width = atlas.naturalWidth / WALK_FRAMES, height = atlas.naturalHeight;
+    const scale = unit.h / img.naturalHeight;
+    ctx.save();
+    ctx.translate(unit.x, unit.y);
+    ctx.scale(facing(unit) * scale, scale);
+    ctx.imageSmoothingEnabled = false;
+    hitFlash(ctx, unit);
+    ctx.drawImage(atlas, walkFrame(unit) * width, 0, width, height, -width / 2, -height, width, height);
+    ctx.restore();
+  }
+
+  function drawEnemyFall(ctx, unit, atlas, img) {
+    const t = clamp(unit.poseT || 0);
+    const width = atlas.naturalWidth / FALL_FRAMES, height = atlas.naturalHeight / 2;
+    const frame = Math.min(FALL_FRAMES - 1, Math.floor(t * FALL_FRAMES));
+    const sign = facing(unit), direction = unit.fallForward ? 1 : -1;
+    const scale = unit.h / img.naturalHeight;
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0," + 0.32 * t + ")";
+    ctx.beginPath();
+    ctx.ellipse(unit.x + sign * direction * t * unit.h * 0.36, unit.y + 4,
+      unit.h * (0.17 + t * 0.26), 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.translate(unit.x, unit.y);
+    ctx.scale(sign * scale, scale);
+    ctx.globalAlpha *= 1 - 0.22 * t;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(atlas, frame * width, unit.fallForward ? height : 0, width, height,
+      -width / 2, 2 - height, width, height);
+    ctx.restore();
+  }
+
+  function drawEnemyAttack(ctx, unit, layers) {
+    const { body, arm } = layers;
+    const [px, py] = ARM_PIVOTS[unit.kind];
+    const scale = unit.h / body.naturalHeight, sign = facing(unit);
+    const motion = enemyMotion(unit.kind, unit.attack);
+    ctx.save();
+    ctx.translate(unit.x + motion.shift * unit.h * sign, unit.y);
+    ctx.scale(scale * sign, scale);
+    ctx.rotate(motion.lean);
+    ctx.translate(-body.naturalWidth / 2, -body.naturalHeight);
+    ctx.imageSmoothingEnabled = false;
+    hitFlash(ctx, unit);
+    ctx.drawImage(body, 0, 0);
+    if (unit.kind === "goblinA") drawEnemyBow(ctx, unit.kind, motion);
+    else if (unit.kind === "skeletonA" && motion.showArrow) {
+      const [x, y] = armPoint(unit.kind, ...BOWS.skeletonA.slice(0, 2), motion.arm);
+      ctx.fillStyle = "#cab799"; ctx.fillRect(x - 12, y - 1, 27, 1);
+      ctx.fillStyle = "#eaf4e7"; ctx.fillRect(x + 13, y - 2, 3, 3);
+    }
+    ctx.translate(px, py);
+    ctx.rotate(motion.arm);
+    ctx.drawImage(arm, -px, -py);
+    ctx.restore();
+  }
+
+  function drawFallen(ctx, unit, img, scale, w, base, progress) {
+    const [left, right, bottom] = FALLEN_BOUNDS[unit.kind] || [0, img.naturalWidth, img.naturalHeight];
+    const king = unit.kind === "goblinKing";
+    const fall = smooth(progress), angle = fall * (king ? -109 * Math.PI / 180 : (unit.fallForward ? 1 : -1) * Math.PI / 2);
+    const depth = 1 - (king ? 0.22 : 0.34) * fall;
+    const sin = Math.sin(angle), cos = Math.cos(angle);
+    const edge = unit.fallForward ? right : left;
+    let x = unit.x, lift = ((edge * scale - w / 2) * sin + (bottom * scale - base) * cos) * depth;
+    if (king) {
+      let left = Infinity, right = -Infinity, lowest = -Infinity;
+      const sign = facing(unit);
+      for (const [px, py] of KING_HULL) {
+        const dx = px * scale - w / 2, dy = py * scale - base;
+        const sx = (dx * cos - dy * sin) * sign;
+        left = Math.min(left, sx);
+        right = Math.max(right, sx);
+        lowest = Math.max(lowest, dx * sin + dy * cos);
+      }
+      x = Math.max(8 - left, Math.min(unit.x, DWR.CONFIG.canvas.w - 8 - right));
+      lift = lowest * depth;
+      ctx.fillStyle = "rgba(0,0,0," + (0.3 * fall) + ")";
+      ctx.beginPath();
+      ctx.ellipse(x + (left + right) / 2, unit.y + 5, (right - left) * 0.44, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.save();
+    ctx.translate(x, unit.y - lift);
+    ctx.scale(facing(unit), depth);
+    ctx.rotate(angle);
+    ctx.globalAlpha *= 1 - 0.27 * fall;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(img, -w / 2, -base, w, img.naturalHeight * scale);
+    ctx.restore();
+  }
+
+  function mixFrames(current, next, mix) {
+    if (!frameMixer) frameMixer = document.createElement("canvas").getContext("2d");
+    const { canvas } = frameMixer, width = current.naturalWidth, height = current.naturalHeight;
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width; canvas.height = height;
+    } else frameMixer.clearRect(0, 0, width, height);
+    frameMixer.save();
+    frameMixer.globalAlpha = 1 - mix;
+    frameMixer.drawImage(current, 0, 0);
+    // Складываем альфу в буфере, чтобы общие пиксели не мерцали и не просвечивали.
+    frameMixer.globalCompositeOperation = "lighter";
+    frameMixer.globalAlpha = mix;
+    frameMixer.drawImage(next, 0, 0);
+    frameMixer.restore();
+    return canvas;
+  }
+
+  function warriorPose(progress) {
+    let i = 1;
+    while (progress > WARRIOR_POSES[i][0]) i++;
+    const [start, ...from] = WARRIOR_POSES[i - 1];
+    const [end, ...to] = WARRIOR_POSES[i];
+    const t = smooth((progress - start) / (end - start));
+    return from.map((angle, j) => angle + (to[j] - angle) * t);
+  }
+
+  function limbEnd(x, y, length, angle) {
+    return [x + length * Math.cos(angle), y + length * Math.sin(angle)];
+  }
+
+  function warriorGrip(arm, fore) {
+    const elbow = limbEnd(...WARRIOR_SHOULDER, 8.8, arm);
+    return { elbow, hand: limbEnd(...elbow, 10.9, fore) };
+  }
+
+  function drawWarrior(ctx, unit, pose, time) {
+    const body = DWR.Assets.img["warrior-body"];
+    const upper = DWR.Assets.img["warrior-upper"], fore = DWR.Assets.img["warrior-fore"];
+    const blade = DWR.Assets.img["warrior-blade"];
+    if (![body, upper, fore, blade].every(part => part?.naturalWidth)) return false;
+    const swinging = pose === "attack" || pose === "powerStrike";
+    const progress = clamp(unit.poseT || 0);
+    const atlas = DWR.Assets.walk.warrior;
+    const walking = pose === "walk" && atlas?.naturalWidth;
+    const step = walking ? walkFrame(unit) : 0;
+    const stride = Math.sin(step / WALK_FRAMES * Math.PI * 2);
+    const [baseArm, baseForearm, baseSword, lean] = warriorPose(swinging ? progress : 0);
+    const arm = baseArm + stride * 0.16, forearm = baseForearm + stride * 0.10, sword = baseSword + stride * 0.095;
+    const { elbow, hand } = warriorGrip(arm, forearm);
+    const bob = swinging || walking ? 0 : unit.h * Math.sin(time * 2 + unit.x * 0.013) * 0.006;
+    const scale = unit.h / BODY_PX;
+
+    ctx.save();
+    ctx.translate(unit.x, unit.y + bob);
+    ctx.scale(facing(unit) * scale, scale);
+    if (lean) ctx.rotate(lean);
+    ctx.translate(-body.naturalWidth / 2, -(body.naturalHeight - BOTTOM_PAD));
+    ctx.imageSmoothingEnabled = false;
+    hitFlash(ctx, unit);
+    if (walking) {
+      const w = body.naturalWidth, h = body.naturalHeight;
+      ctx.drawImage(atlas, step * w, 0, w, h, 0, 0, w, h);
+      ctx.translate(0, -Math.round(1.4 * Math.abs(stride)));
+    } else ctx.drawImage(body, 0, 0);
+
+    if (swinging && progress > 0.30 && progress < 0.61) {
+      const [prevArm, prevFore, prevSword] = warriorPose(progress - 0.075);
+      const [midArm, midFore, midSword] = warriorPose(progress - 0.038);
+      const trail = warriorGrip(prevArm, prevFore).hand;
+      const middle = warriorGrip(midArm, midFore).hand;
+      const fade = smooth(clamp((progress - 0.30) / 0.07)) * smooth(clamp((0.61 - progress) / 0.09));
+      ctx.fillStyle = pose === "powerStrike"
+        ? "rgba(255,205,128," + 0.60 * fade + ")" : "rgba(237,243,255," + 0.45 * fade + ")";
+      ctx.beginPath();
+      ctx.moveTo(...limbEnd(...hand, 29, sword));
+      ctx.quadraticCurveTo(...limbEnd(...middle, 31, midSword), ...limbEnd(...trail, 28, prevSword));
+      ctx.lineTo(...limbEnd(...trail, 26, prevSword));
+      ctx.quadraticCurveTo(...limbEnd(...middle, 23, midSword), ...limbEnd(...hand, 18, sword));
+      ctx.fill();
+    }
+
+    function drawPart(image, x, y, angle, px, py) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+      ctx.drawImage(image, -px, -py);
+      ctx.restore();
+    }
+    drawPart(upper, ...WARRIOR_SHOULDER, arm, 3, 6);
+    drawPart(blade, ...hand, sword, 7, 5);
+    drawPart(fore, ...elbow, forearm, 3, 6);
+    ctx.restore();
+    return true;
+  }
+
+  function draw(ctx, unit, time = 0) {
+    const A = DWR.Assets;
+    if (!A.ready) return;
+    const pose = unit.pose || "idle";
+    if (unit.kind === "warrior" && pose !== "dead" && drawWarrior(ctx, unit, pose, time)) return;
+    const baseImage = A.img[unit.kind];
+    const walk = A.walk[unit.kind], fall = A.falls[unit.kind];
+    if (pose === "walk" && walk?.naturalWidth && baseImage?.naturalWidth) {
+      drawEnemyWalk(ctx, unit, walk, baseImage);
+      return;
+    }
+    if (pose === "dead" && fall?.naturalWidth && baseImage?.naturalWidth) {
+      drawEnemyFall(ctx, unit, fall, baseImage);
+      return;
+    }
+    const layers = A.enemyLayers?.[unit.kind];
+    if (pose !== "dead" && unit.attack && layers?.body.naturalWidth && layers.arm.naturalWidth) {
+      drawEnemyAttack(ctx, unit, layers);
+      return;
+    }
+
+    const hero = !!A.frames[unit.kind];
+    const clipId = pose === "heal" ? "priest" : RANGER_CLIPS[pose] ||
+      (pose === "attack" || pose === "powerStrike" ? (unit.kind === "priest" ? "priest-cast" : unit.kind) : null);
+    const clip = A.frames[clipId];
+    const progress = clamp(unit.poseT || 0);
+    const frameT = progress * (clip?.length || 0);
+    const index = clip ? Math.min(clip.length - 1, Math.floor(frameT)) : 0;
+    const release = A.img["priest-release"];
+    const fromClip = frame => clipId === "priest-cast" && frame === 3 && unit.castReleased && release?.naturalWidth
+      ? release : clip?.[frame];
+    const current = fromClip(index);
+    const img = current?.naturalWidth ? current : A.img[unit.kind];
+    if (!img?.naturalWidth) return;
+    const h = unit.h, scale = h / (hero ? BODY_PX : img.naturalHeight);
+    const w = img.naturalWidth * scale;
+    const base = (img.naturalHeight - (hero ? BOTTOM_PAD : 0)) * scale;
+    if (pose === "dead") {
+      drawFallen(ctx, unit, img, scale, w, base, progress);
+      return;
+    }
+
+    let bob = 0, lean = 0;
+    if (pose === "idle") bob = Math.sin(time * 2 + unit.x * 0.013) * h * 0.008;
+    else if (pose === "walk") {
+      bob = Math.abs(Math.sin(progress * Math.PI * 2)) * h * 0.022;
+      lean = 0.07;
+    } else if (pose === "hit") lean = -0.15;
+
+    ctx.save();
+    ctx.translate(unit.x, unit.y + bob);
+    ctx.scale(facing(unit), 1);
+    if (lean) ctx.rotate(lean);
+    ctx.imageSmoothingEnabled = false;
+    hitFlash(ctx, unit);
+    const next = clip && (index + 1 < clip.length ? fromClip(index + 1) : A.img[unit.kind]);
+    // Смешиваем только конец фазы. В момент спуска или удара заданный кадр уже виден целиком.
+    const mix = next?.naturalWidth ? smooth(clamp((frameT - index - 0.52) / 0.48)) : 0;
+    const frame = mix === 0 ? img : mix === 1 ? next : mixFrames(img, next, mix);
+    ctx.drawImage(frame, -w / 2, -base, w, img.naturalHeight * scale);
+    ctx.restore();
+  }
+
+  function drawOutlined(ctx, unit, time) {
+    if (!outlineBuffers) {
+      outlineBuffers = [document.createElement("canvas"), document.createElement("canvas")]
+        .map(canvas => canvas.getContext("2d"));
+    }
+    const [mask, contour] = outlineBuffers;
+    const padding = Math.ceil(unit.h * 1.3) + 8;
+    const left = Math.floor(unit.x) - padding;
+    const top = Math.floor(unit.y - unit.h * 1.55) - 8;
+    const w = padding * 2, h = Math.ceil(unit.y - top) + 26;
+    for (const buffer of outlineBuffers) {
+      if (buffer.canvas.width !== w || buffer.canvas.height !== h) {
+        buffer.canvas.width = w;
+        buffer.canvas.height = h;
+      } else buffer.clearRect(0, 0, w, h);
+      buffer.imageSmoothingEnabled = false;
+    }
+    mask.save();
+    mask.translate(-left, -top);
+    draw(mask, { ...unit, flash: 0 }, time);
+    mask.restore();
+    // Контур строится из альфа-маски текущей позы, включая оружие.
+    contour.save();
+    for (const [x, y] of OUTLINE_OFFSETS) contour.drawImage(mask.canvas, x, y);
+    contour.globalCompositeOperation = "source-in";
+    contour.fillStyle = "#ffd07b"; contour.fillRect(0, 0, w, h);
+    contour.globalCompositeOperation = "destination-out"; contour.drawImage(mask.canvas, 0, 0);
+    contour.restore();
+    ctx.drawImage(contour.canvas, left, top);
+    draw(ctx, unit, time);
+  }
+
+  function releasePoint(unit, clipId, index, x, y) {
+    const frame = DWR.Assets.frames[clipId]?.[index];
+    if (!frame?.naturalWidth) return null;
+    const scale = unit.h / BODY_PX;
+    return { x: unit.x + (x - frame.naturalWidth / 2) * scale * facing(unit),
+      y: (y - (frame.naturalHeight - BOTTOM_PAD)) * scale };
+  }
+
+  function bowRelease(unit, pose) {
+    return releasePoint(unit, RANGER_CLIPS[pose] || "ranger", 4, 97, 58.5);
+  }
+
+  function fireRelease(unit) {
+    return releasePoint(unit, "priest-cast", 3, 103, 32);
+  }
+
+  return { draw, drawOutlined, walkProgress, bowRelease, fireRelease, enemyBowRelease, staffPoint };
+})();
