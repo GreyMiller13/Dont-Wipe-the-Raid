@@ -3,9 +3,9 @@
 window.DWR = window.DWR || {};
 
 DWR.PanelEditor = (function () {
-  const ACTIONS = { targeted: "Перетащить на врага", instant: "Нажать", cycle: "ЛКМ меняет режим",
-    potion: "Перетащить на героя" };
-  const RESOURCES = { rage: "ярость", focus: "фокус" };
+  const ACTIONS = { targeted: "Перетащить на врага", instant: "Нажать",
+    ally: "Перетащить на героя", auto: "ЛКМ включает авто", potion: "Перетащить на героя" };
+  const RESOURCES = { rage: "ярость", focus: "фокус", mana: "мана" };
   let toastTimer = null;
 
   function esc(s) {
@@ -32,7 +32,7 @@ DWR.PanelEditor = (function () {
   }
 
   function _clear() {
-    DWR.State.data.panel = [null, null, null, null, null];
+    DWR.State.data.panel.fill(null);
     savePanel();
   }
 
@@ -111,9 +111,8 @@ DWR.PanelEditor = (function () {
     const S = DWR.State;
     const data = S.data;
     const potionStock = S.stats().potionStock;
-    const icon = id => `<img class="pe-slot-icon" src="${DWR.Assets.iconUrl(id === "fireball" ? "heal" : id)}" alt="" draggable="false">`;
+    const icon = id => `<img class="pe-slot-icon" src="${DWR.Assets.iconUrl(id)}" alt="" draggable="false">`;
 
-    // Ряд из 5 слотов
     const slots = data.panel.map((item, i) => {
       if (item === null) {
         return `<div class="pe-slot pe-slot-empty" data-slot="${i}" aria-label="Пустой слот">—</div>`;
@@ -134,7 +133,7 @@ DWR.PanelEditor = (function () {
       .map(id => {
         const sk = DWR.CONFIG.skills[id];
         const detail = id === "potion" ? `${ACTIONS.potion} · На старте ×${potionStock}`
-          : sk.type === "cycle" ? ACTIONS.cycle : `${sk.cost} · ${RESOURCES[sk.res]} · ${ACTIONS[sk.type]}`;
+          : `${sk.cost} · ${RESOURCES[sk.res]} · ${ACTIONS[sk.type]}${sk.auto && sk.type !== "auto" ? " или авто" : ""}`;
         return `<button class="pe-lib-item" draggable="true" data-drag-skill="${id}" onclick="DWR.PanelEditor._place('${id}')">
           ${icon(id)} <span><strong>${esc(sk.name)}</strong><small>${detail}</small></span>
           <span class="pe-add" aria-hidden="true">+</span>
@@ -147,6 +146,7 @@ DWR.PanelEditor = (function () {
         <header class="up-header">
           <h2 class="scr-h2">Панель навыков</h2>
           <div class="up-header-right">
+            <span class="up-balance up-balance-runes"><img src="assets/out/rune.png" alt="">Руны <b>${data.runes}</b></span>
             <button class="btn" onclick="DWR.showScreen('location')">Назад</button>
           </div>
         </header>
@@ -156,7 +156,7 @@ DWR.PanelEditor = (function () {
               <h3>Снаряжение <small>${data.panel.filter(Boolean).length} / ${data.panel.length}</small></h3>
               <button class="btn pe-clear" onclick="DWR.PanelEditor._clear()"${data.panel.some(Boolean) ? "" : " disabled"}>Очистить панель</button>
             </div>
-            <div class="pe-slots">${slots}</div>
+            <div class="pe-slots" style="--slot-count:${data.panel.length}">${slots}</div>
             <p class="pe-hint">Перетащите навык в слот, на соседний навык или обратно в библиотеку.</p>
           </section>
           <section class="pe-library">

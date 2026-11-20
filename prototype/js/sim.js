@@ -1,5 +1,5 @@
 // DWR :: sim.js — симуляция боя: чистая логика без DOM (проверяется headless в Node).
-// Контракт: DWR.Sim.createRun/spawnRoom/tick/useTargeted/useInstant/cyclePriestMode/usePotion.
+// Контракт: DWR.Sim.createRun/spawnRoom/tick/useTargeted/useHeal/useInstant/setAuto/usePotion.
 // Рендер (run.js) читает run.fx (эффекты кадра) и run.events (события: kill, heroDead, wipe).
 "use strict";
 window.DWR = window.DWR || {};
@@ -12,12 +12,14 @@ DWR.Sim = (function () {
   const ARROW_RELEASE = 4 / 6;
   const AUTO_MOTION = { warrior: 0.58, ranger: 0.60, priest: 0.94 };
   const SKILL_SWING = { multishot: 0.63, preciseShot: 0.75, powerStrike: 0.72 };
-  const PRIEST_MODES = Object.keys(C().priestModes);
+  const controlled = hero => hero.effects.has("stunned") || hero.effects.has("frozen");
 
   // --- Создание забега: герои с статами из купленных узлов; ресурсы с нуля ---
   function createRun() {
     const st = DWR.State.stats();
     const cfg = C();
+    const equipped = new Set(DWR.State.data.panel.filter(id => id && DWR.State.hasSkill(id)));
+    const autoSkills = new Set([...equipped].filter(DWR.State.autoEnabled));
     const heroes = {};
     for (const id of cfg.heroOrder) {
       const h = cfg.heroes[id];
@@ -26,12 +28,12 @@ DWR.Sim = (function () {
       heroes[id] = {
         id, kind: id, x: h.x * cfg.canvas.w, facing: 1, h: HERO_H,
         maxHp, hp: maxHp, alive: true, atkT: 0.5, walkDistance: 0,
+        critChance: Math.max(0, Math.min(cfg.critical.maxChance, h.critChance + (st[h.critStat] || 0))),
         dmg: id === "warrior" ? h.dmg + st.wDmg : id === "ranger" ? h.dmg + st.rDmg : 0,
         interval: id === "ranger"
           ? Math.max(0.35, h.interval * (1 + st.rSpeed))
           : id === "warrior" ? h.interval * (1 - st.wTempo) : 0,
-        heal: (h.heal || 0) + st.healPow, healCD: Math.max(1, (h.healCD || 0) - st.healHaste), healT: 0,
-        fireballT: 0,
+        heal: (h.heal || 0) + st.healPow,
         rage: 0, focus: 0,
         manaMax, mana: manaMax, manaTick: 0,
         blockT: 0, effects: new Map()
@@ -39,65 +41,42 @@ DWR.Sim = (function () {
     }
     return {
       heroes, heroOrder: cfg.heroOrder.slice(),
-      enemies: [], fx: [], events: [], attacks: [],
-      skillCooldowns: new Map(),
-      priestMode: PRIEST_MODES[0], over: null,
+      enemies: [], fx: [], events: [], attacks: [], groundWaves: [],
+      equipped, autoSkills, skillCooldowns: new Map(), over: null,
       potionsLeft: DWR.State.data.panel.includes("potion") ? st.potionStock : 0,
       stats: st
     };
   }
 
   function inBattle(run) { return run.enemies.some(e => e.alive); }
-  function priestSpellStatus(run, id) {
-    const priest = run.heroes.priest, mode = run.priestMode;
-    const spell = C().priestSpells[id], attack = id === "fireball";
-    const left = attack ? priest.fireballT : priest.healT;
-    const duration = attack ? Math.max(1, spell.cooldown - (run.stats.fireballHaste || 0)) : priest.healCD;
-    const cost = Math.max(1, spell.cost - (run.stats[id + "Cost"] || 0));
-    const reserve = attack && mode === "balance"
-      ? Math.max(1, C().priestSpells.heal.cost - (run.stats.healCost || 0)) : 0;
-    const enabled = priest.alive && (mode === "balance" || mode === (attack ? "attack" : "heal"));
-    const hasMana = priest.mana >= cost;
-    const canPay = priest.mana >= cost + reserve;
-    return { left, duration, cost, enabled, hasMana, canPay, ready: enabled && left === 0 && canPay };
+  function rollCritical(unit) {
+    return Math.random() < unit.critChance;
   }
 
-  function restoreHealth(run, hero, value, potion = false) {
+  function restoreHealth(run, hero, value, { potion = false, critical = false } = {}) {
+    if (critical) value *= C().critical.multiplier;
     const amount = Math.min(hero.maxHp - hero.hp, value);
     if (amount <= 0) return;
     hero.hp += amount;
-    run.fx.push({ type: "heal", unit: hero, amount, potion });
+    run.fx.push({ type: "heal", unit: hero, amount, potion, critical });
   }
 
-  function castPriestSpell(run, priest) {
+  function castPriestAuto(run, priest) {
     if (priest.attackPose) return;
-    const { heal, fireball } = C().priestSpells;
-    const healing = priestSpellStatus(run, "heal");
-    if (healing.ready) {
+    const autoHeal = run.autoSkills.has("heal");
+    if (autoHeal && skillStatus(run, "heal").ready) {
       let target = null;
       for (const id of run.heroOrder) {
         const hero = run.heroes[id];
         if (hero.alive && hero.hp < hero.maxHp && (!target || hero.hp < target.hp)) target = hero;
       }
-      if (target) {
-        priest.mana -= healing.cost;
-        priest.healT = healing.duration;
-        priest.attackPose = { name: "heal", duration: heal.animation, t: 0 };
-        const urgent = target.hp / target.maxHp <= 0.35 ? (run.stats.healOverflow || 0) : 0;
-        restoreHealth(run, target, priest.heal + urgent);
-        applyStatus(target, "healWard", run.stats.healWard);
-        return;
-      }
+      if (target && useHeal(run, target.id)) return;
     }
-    const attack = priestSpellStatus(run, "fireball");
-    if (!attack.ready) return;
+    if (!run.autoSkills.has("fireball")) return;
+    const reserve = autoHeal ? skillStatus(run, "heal").cost : 0;
+    if (priest.mana < skillStatus(run, "fireball").cost + reserve) return;
     const target = nearestEnemy(run, priest.x);
-    if (!target) return;
-    priest.mana -= attack.cost;
-    priest.fireballT = attack.duration;
-    const windup = startAttackPose(priest, AUTO_MOTION.priest, fireball.release);
-    queueAttack(run, priest, target, "fire", fireball.dmg + (run.stats.fireDmg || 0),
-      { windup, flight: fireball.flight, offsetX: -12 });
+    if (target) useTargeted(run, "fireball", target.uid);
   }
   function frontHero(run) {
     for (const id of run.heroOrder) if (run.heroes[id].alive) return run.heroes[id];
@@ -133,7 +112,7 @@ DWR.Sim = (function () {
       const x = (cfg.battle.enemyXFrom + span * frac) * cfg.canvas.w;
       run.enemies.push(createEnemy(kind, x, mm, i));
     });
-    run.fx = []; run.events = []; run.attacks = [];
+    run.fx = []; run.events = []; run.attacks = []; run.groundWaves = [];
     const priest = run.heroes.priest;
     if (priest.alive) priest.mana = Math.min(priest.manaMax, priest.mana + (run.stats.manaOnRoom || 0));
   }
@@ -148,8 +127,8 @@ DWR.Sim = (function () {
       hp, maxHp: hp, dmg: def.dmg * multiplier, interval: def.interval,
       alive: true, atkT: 1.2 + index * 0.3, walking: !def.ranged, walkDistance: 0, attack: null,
       effects: new Map(), buffT: def.buff?.initial ?? 0,
-      smashT: def.smash?.everySec || 0,
-      lane: kind === "skeletonW" ? 36 * (index % 2) : 0
+      smashT: def.smash?.everySec || 0, howlT: def.howl?.initial ?? 0, freezeT: def.freeze?.initial ?? 0,
+      lane: (def.formationGap ?? (kind === "skeletonW" ? 36 : 0)) * (index % 2)
     };
   }
 
@@ -158,15 +137,19 @@ DWR.Sim = (function () {
       const summon = lord.def.summon;
       if (!lord.alive || !summon || lord.summoned) continue;
       lord.summoned = true;
-      lord.ritual = { t: 0, duration: summon.seconds };
-      const minions = summon.minions.map((kind, i) => {
-        const unit = createEnemy(kind, lord.x - (3 - i) * 102, 1, i);
-        unit.appearT = 0.40;
-        return unit;
-      });
-      run.enemies.push(...minions);
-      run.fx.push({ type: "summon", minions });
+      lord.ritual = { t: 0, duration: summon.seconds, hit: false };
     }
+  }
+
+  function finishSummon(run, lord) {
+    const minions = lord.def.summon.minions.map((kind, i) => {
+      const unit = createEnemy(kind, lord.x - (3 - i) * 102, 1, i);
+      unit.appearT = 0.40;
+      return unit;
+    });
+    lord.ritual.hit = true;
+    run.enemies.push(...minions);
+    run.fx.push({ type: "summon", minions });
   }
 
   // --- Урон ---
@@ -178,28 +161,41 @@ DWR.Sim = (function () {
       if (hero.blockT > 0) d *= (1 - C().skills.block.dmgReduce);
     }
     for (const id of hero.effects.keys()) d *= C().effects[id]?.damageTakenMultiplier ?? 1;
-    d = Math.max(1, Math.round(d));
-    hero.hp -= d;
-    run.fx.push({ type: "hurt", unit: hero, amount: d });
+    damageHero(run, hero, Math.max(1, Math.round(d)));
+  }
+  function damageHero(run, hero, amount, kind) {
+    hero.hp -= amount;
+    run.fx.push({ type: "hurt", unit: hero, amount, kind });
     if (hero.hp <= 0) {
       hero.hp = 0; hero.alive = false;
       run.events.push({ type: "heroDead", hero });
       if (!frontHero(run)) { run.over = "wipe"; run.events.push({ type: "wipe" }); }
     }
   }
-  function hitEnemy(run, e, dmg) {
+  function hitEnemy(run, e, dmg, critical) {
     if (!e.alive) return false;
+    if (critical) dmg *= C().critical.multiplier;
     e.hp -= dmg;
-    run.fx.push({ type: "hurt", unit: e, amount: Math.round(dmg) });
+    run.fx.push({ type: "hurt", unit: e, amount: Math.round(dmg), critical });
     if (e.hp <= 0) {
       e.hp = 0; e.alive = false;
       run.events.push({ type: "kill", unit: e, boss: e.boss });
       const R = C().resources;
       const { warrior: w, ranger: r, priest } = run.heroes;
       if (w.alive) w.rage = Math.min(R.rage.max, w.rage + R.rage.perKill + (run.stats.wRageKill || 0));
-      if (r.alive) r.focus = Math.min(R.focus.max, r.focus + R.focus.perKill + (run.stats.rFocusKill || 0));
+      if (r.alive) {
+        let earned = R.focus.perKill + (run.stats.rFocusKill || 0);
+        if (run.autoSkills.has("multishot")) earned = earned * C().skills.multishot.focusOnKillMultiplier + (run.stats.multishotKillFocus || 0);
+        r.focus = Math.min(R.focus.max, r.focus + earned);
+      }
       if (priest.alive) priest.mana = Math.min(priest.manaMax, priest.mana + (run.stats.manaOnKill || 0));
       return true;
+    }
+    const regen = e.def.regen;
+    if (regen && e.hp <= e.maxHp * regen.threshold && !e.effects.has(regen.status)) {
+      applyStatus(e, regen.status, Infinity);
+      e.regenT = regen.interval;
+      run.fx.push({ type: "status", unit: e, id: regen.status });
     }
     return false;
   }
@@ -231,6 +227,42 @@ DWR.Sim = (function () {
     }
   }
 
+  function tickFreeze(run, hero, dt) {
+    const status = hero.effects.get("frozen");
+    if (!status) return;
+    const { tickSec, healthFraction } = C().effects.frozen;
+    status.nextTick ??= tickSec;
+    const elapsed = status.duration - Math.max(0, status.left - dt);
+    while (hero.alive && status.nextTick <= elapsed + 1e-9) {
+      damageHero(run, hero, hero.maxHp * healthFraction, "frost");
+      status.nextTick += tickSec;
+    }
+    if (!hero.alive || status.left <= dt + 1e-9) {
+      hero.effects.delete("frozen");
+      run.fx.push({ type: "thaw", unit: hero });
+    }
+  }
+
+  function interruptHero(run, hero, id, duration) {
+    applyStatus(hero, id, duration);
+    hero.attackPose = null;
+    hero.walking = false;
+    // Уже выпущенные снаряды долетают. Отмечаем отмену в том числе внутри resolveAttacks.
+    for (const attack of run.attacks) {
+      if (attack.caster === hero && attack.startX === null) attack.cancelled = true;
+    }
+  }
+
+  function tickRegeneration(run, enemy, dt) {
+    const regen = enemy.def.regen;
+    if (!regen || !enemy.alive || !enemy.effects.has(regen.status)) return;
+    enemy.regenT -= dt;
+    while (enemy.regenT <= 1e-9) {
+      enemy.regenT += regen.interval;
+      restoreHealth(run, enemy, enemy.maxHp * regen.healthFraction);
+    }
+  }
+
   function attackDamage(unit, value) {
     for (const id of unit.effects.keys()) value *= C().effects[id]?.damageMultiplier ?? 1;
     return value;
@@ -255,7 +287,7 @@ DWR.Sim = (function () {
   function resolveAttacks(run, dt) {
     if (!run.attacks.length) return;
     run.attacks = run.attacks.filter(attack => {
-      if (attack.resolved) return false;
+      if (attack.resolved || attack.cancelled) return false;
       if (attack.startX === null && !attack.caster.alive) return false;
       attack.t += dt;
       if (attack.t < attack.windup) return true;
@@ -264,26 +296,34 @@ DWR.Sim = (function () {
       attack.y = torsoY(attack.target) + attack.offsetY;
       if (attack.t < attack.windup + attack.flight) return true;
 
-      if (attack.damage > 0) {
-        if (attack.target.id) hitHero(run, attack.target, attack.damage);
-        else if (attack.target.alive && (attack.kind !== "sword" || Math.abs(attack.x - attack.caster.x) <= SWORD_RANGE)) {
+      if (attack.kind === "frost") {
+        const hero = attack.target;
+        if (hero.alive) {
+          interruptHero(run, hero, "frozen");
+          run.fx.push({ type: "freeze", unit: hero });
+        }
+        return false;
+      }
+      if (attack.target.id) {
+        if (attack.damage > 0) hitHero(run, attack.target, attack.damage);
+      } else {
+        const splash = attack.kind === "fire" ? run.stats.fireballBlast : 0;
+        const neighbors = splash > 0 ? run.enemies.filter(enemy =>
+          enemy.alive && enemy !== attack.target && Math.abs(enemy.x - attack.target.x) <= 110) : [];
+        const direct = attack.damage > 0 && attack.target.alive &&
+          (attack.kind !== "sword" || Math.abs(attack.x - attack.caster.x) <= SWORD_RANGE);
+        // Взрыв фаербола использует один бросок крита для всех задетых целей.
+        const critical = (direct || neighbors.length > 0) && rollCritical(attack.caster);
+        if (direct) {
           const power = attack.kind === "powerStrike" || attack.kind === "slash";
           if (attack.kind === "sword" || power) meleeImpact(run, attack.caster, attack.target, power ? "power" : "sword");
-          const killed = hitEnemy(run, attack.target, attack.damage);
-          if (killed && attack.caster.alive && power) {
+          if (hitEnemy(run, attack.target, attack.damage, critical) && attack.caster.alive && power) {
             attack.caster.rage = Math.min(C().resources.rage.max, attack.caster.rage + (run.stats.powerStrikeRefund || 0));
           }
         }
+        for (const enemy of neighbors) hitEnemy(run, enemy, splash, critical);
       }
-      if (attack.kind === "fire") {
-        const splash = run.stats.fireballBlast || 0;
-        if (splash > 0) {
-          for (const enemy of run.enemies) {
-            if (enemy !== attack.target && Math.abs(enemy.x - attack.target.x) <= 110) hitEnemy(run, enemy, splash);
-          }
-        }
-        run.fx.push({ type: "fireImpact", x: attack.x, y: attack.y });
-      }
+      if (attack.kind === "fire") run.fx.push({ type: "fireImpact", x: attack.x, y: attack.y });
       if (attack.kind === "necroticOrb") run.fx.push({ type: "necroticImpact", x: attack.x, y: attack.y });
       // Стрела остаётся в кадре попадания; шар сменяется взрывом.
       attack.resolved = attack.flight > 0 && attack.kind !== "fire" && attack.kind !== "necroticOrb";
@@ -294,7 +334,7 @@ DWR.Sim = (function () {
   function advanceWarrior(run, dt) {
     const warrior = run.heroes.warrior;
     warrior.walking = false;
-    if (!warrior.alive || warrior.attackPose) return;
+    if (!warrior.alive || warrior.attackPose || controlled(warrior)) return;
     const target = nearestEnemy(run, warrior.x);
     if (!target) return;
     const { warriorAdvanceSpeed, warriorStopRange } = C().battle;
@@ -309,10 +349,37 @@ DWR.Sim = (function () {
     return run.enemies.filter(unit => unit.alive && buff.targets.includes(unit.kind));
   }
 
+  function howlAtParty(run, enemy) {
+    for (const hero of Object.values(run.heroes)) {
+      if (hero.alive) interruptHero(run, hero, enemy.def.howl.status);
+    }
+    run.fx.push({ type: "howl", x: enemy.x, y: -enemy.h * 0.84 });
+  }
+
+  function advanceGroundWaves(run, dt) {
+    run.groundWaves = run.groundWaves.filter(wave => {
+      const next = Math.min(wave.range, wave.distance + wave.speed * dt);
+      const start = wave.contactReach ? -wave.contactReach : wave.distance;
+      for (const id of run.heroOrder) {
+        const hero = run.heroes[id];
+        const offset = (hero.x - wave.origin) * wave.direction;
+        if (!hero.alive || wave.hit.has(id) || offset < start || offset > next) continue;
+        wave.hit.add(id);
+        meleeImpact(run, wave.caster, hero, wave.kind);
+        hitHero(run, hero, wave.damage);
+        if (hero.alive && wave.stun) interruptHero(run, hero, "stunned", wave.stun);
+      }
+      wave.distance = next;
+      return next < wave.range;
+    });
+  }
+
   function enemyAttack(run, e, target, dt, justStopped) {
     e.atkT -= dt;
-    const buff = e.def.buff;
+    const { buff, howl, smash, freeze } = e.def;
     if (buff) e.buffT -= dt;
+    if (howl) e.howlT -= dt;
+    if (freeze) e.freezeT -= dt;
     if (e.walking) {
       e.attack = null;
       return;
@@ -323,26 +390,46 @@ DWR.Sim = (function () {
       return;
     }
     if (!e.attack) {
-      const heavy = !!e.def.smash && e.smashT <= e.interval;
+      const heavy = !!smash && e.smashT <= e.interval;
       const buffing = !!buff && e.buffT <= 0 && buffAllies(run, buff).length > 0;
-      const move = buffing ? buff : heavy ? e.def.smash : e.def.attack;
+      const howling = !!howl && e.howlT <= 0;
+      const freezing = !!freeze && e.freezeT <= 0;
+      const move = howling ? howl : freezing ? freeze : buffing ? buff : heavy ? smash : e.def.attack;
       // Старая конфигурация из кэша может не содержать параметров анимации.
       const windup = move?.windup ?? (e.def.ranged ? 0.55 : 0.42);
       const recovery = move?.recovery ?? 0.33;
       if (e.atkT > windup) return;
       // Первый удар в ближнем бою получает полный замах после подхода.
       if (justStopped) e.atkT = windup;
-      e.attack = { windup, recovery, heavy, buffing, beam: !!move?.beam, projectile: move?.projectile,
-        hit: false, t: 0, targetX: target.x };
+      let lockedTarget = null;
+      if (freezing) {
+        const candidates = run.heroOrder.map(id => run.heroes[id]).filter(hero => hero.alive);
+        lockedTarget = candidates[Math.floor(Math.random() * candidates.length)];
+      }
+      e.attack = { windup, recovery, heavy, buffing, howling, freezing, lockedTarget,
+        beam: !!move?.beam, projectile: move?.projectile,
+        impact: move?.impact, wave: move?.wave, party: move?.party,
+        groundX: heavy ? Math.max(0, e.x - e.h * smash.contactOffset) : null, hit: false, t: 0 };
     }
     const attack = e.attack;
-    attack.targetX = target.x;
-    attack.targetY = torsoY(target);
+    const aimed = attack.lockedTarget ?? target;
+    attack.targetX = aimed.x;
+    attack.targetY = torsoY(aimed);
     attack.t = attack.windup - Math.max(0, e.atkT);
     if (e.atkT > 0) return;
 
     attack.hit = true;
     e.atkT = e.interval;
+    if (attack.howling) {
+      e.howlT = howl.cooldown;
+      howlAtParty(run, e);
+      return;
+    }
+    if (attack.freezing) {
+      e.freezeT = freeze.cooldown;
+      if (aimed.alive) queueAttack(run, e, aimed, "frost", 0, { flight: freeze.flight, arc: 44 });
+      return;
+    }
     if (attack.buffing) {
       e.buffT = buff.cooldown;
       for (const unit of buffAllies(run, buff)) {
@@ -351,18 +438,39 @@ DWR.Sim = (function () {
       }
       return;
     }
-    if (e.def.smash) e.smashT = attack.heavy ? e.def.smash.everySec : e.smashT - e.interval;
-    const dmg = attack.heavy ? e.dmg * e.def.smash.dmgMul : e.dmg;
+    if (attack.heavy) {
+      e.smashT = smash.everySec;
+      const origin = attack.groundX;
+      run.groundWaves.push({ kind: "smash", caster: e, damage: attackDamage(e, e.dmg * smash.dmgMul),
+        origin, range: origin, speed: smash.speed, distance: 0, direction: -1, stun: smash.stun,
+        contactReach: smash.contactReach, hit: new Set() });
+      run.fx.push({ type: "groundSmash", x: origin });
+      return;
+    }
+    if (smash) e.smashT -= e.interval;
+    const dmg = e.dmg;
     if (e.def.ranged && !attack.beam) {
       if (attack.projectile === "necroticOrb") {
         queueAttack(run, e, target, "necroticOrb", dmg, { flight: 0.40, arc: 8 });
       } else {
         queueAttack(run, e, target, "enemyArrow", dmg, { flight: 0.28, arc: 18, offsetX: 18 });
       }
-    } else {
-      if (attack.beam) run.fx.push({ type: "necroticBeam", caster: e, x: attack.targetX, y: attack.targetY });
-      else if (!e.def.ranged) meleeImpact(run, e, target, attack.heavy ? "smash" : "enemy");
+    } else if (attack.beam) {
+      run.fx.push({ type: "necroticBeam", caster: e, x: attack.targetX, y: attack.targetY });
       hitHero(run, target, attackDamage(e, dmg));
+    } else {
+      const targets = attack.party
+        ? run.heroOrder.map(id => run.heroes[id]).filter(h => h.alive)
+        : [target];
+      const damage = attackDamage(e, dmg);
+      for (const hero of targets) {
+        meleeImpact(run, e, hero, attack.impact || "enemy");
+        hitHero(run, hero, damage);
+      }
+      if (attack.wave && !run.over) {
+        run.groundWaves.push({ ...attack.wave, kind: "claw", caster: e, damage, origin: target.x, distance: 0,
+          direction: Math.sign(target.x - e.x) || e.facing, hit: new Set([target.id]) });
+      }
     }
   }
 
@@ -371,21 +479,26 @@ DWR.Sim = (function () {
     if (run.over) return;
     const cfg = C();
     beginSummons(run);
-    for (const enemy of run.enemies) tickStatuses(enemy, dt);
+    for (const enemy of run.enemies) {
+      tickStatuses(enemy, dt);
+      tickRegeneration(run, enemy, dt);
+    }
     for (const id of run.heroOrder) {
       const hero = run.heroes[id], pose = hero.attackPose;
+      tickFreeze(run, hero, dt);
       tickStatuses(hero, dt);
       if (!pose) continue;
       pose.t += dt;
       if (pose.t >= pose.duration) hero.attackPose = null;
     }
+    if (run.over) return;
     resolveAttacks(run, dt);
+    if (run.over) return;
+    if (run.groundWaves.length) advanceGroundWaves(run, dt);
     if (run.over) return;
     advanceWarrior(run, dt);
     const battle = inBattle(run);
     const warrior = run.heroes.warrior, priest = run.heroes.priest, ranger = run.heroes.ranger;
-    priest.healT = Math.max(0, priest.healT - dt);
-    priest.fireballT = Math.max(0, priest.fireballT - dt);
     for (const [id, left] of run.skillCooldowns) {
       if (left <= dt + 1e-9) run.skillCooldowns.delete(id);
       else run.skillCooldowns.set(id, left - dt);
@@ -395,7 +508,13 @@ DWR.Sim = (function () {
     if (battle) {
       const R = cfg.resources;
       if (warrior.alive) warrior.rage = Math.min(R.rage.max, warrior.rage + (R.rage.regenPerSec + (run.stats.wRageRegen || 0)) * dt);
-      if (ranger.alive) ranger.focus = Math.min(R.focus.max, ranger.focus + (R.focus.regenPerSec + (run.stats.rFocusRegen || 0)) * dt);
+      if (ranger.alive) {
+        let focusRegen = R.focus.regenPerSec + (run.stats.rFocusRegen || 0);
+        if (run.autoSkills.has("multishot")) {
+          focusRegen = focusRegen * cfg.skills.multishot.focusRegenMultiplier + (run.stats.multishotHaste || 0);
+        }
+        ranger.focus = Math.min(R.focus.max, ranger.focus + focusRegen * dt);
+      }
       if (priest.alive && priest.manaMax > 0) {
         priest.manaTick += dt;
         const period = Math.max(0.5, cfg.resources.mana.tickSec + run.stats.manaRegen);
@@ -412,23 +531,27 @@ DWR.Sim = (function () {
       if (warrior.alive) {
         warrior.atkT -= dt;
         const tgt = nearestEnemy(run, warrior.x);
-        if (!warrior.walking && !warrior.attackPose && warrior.atkT <= 0 && tgt && Math.abs(tgt.x - warrior.x) < SWORD_RANGE) {
+        if (!controlled(warrior) && !warrior.walking && !warrior.attackPose && warrior.atkT <= 0 && tgt && Math.abs(tgt.x - warrior.x) < SWORD_RANGE) {
           warrior.atkT = warrior.interval;
-          const windup = startAttackPose(warrior, Math.min(warrior.interval, AUTO_MOTION.warrior), cfg.battle.warriorContact);
-          queueAttack(run, warrior, tgt, "sword", warrior.dmg, { windup });
+          if (!run.autoSkills.has("powerStrike") || !castTargeted(run, "powerStrike", tgt)) {
+            const windup = startAttackPose(warrior, Math.min(warrior.interval, AUTO_MOTION.warrior), cfg.battle.warriorContact);
+            queueAttack(run, warrior, tgt, "sword", warrior.dmg, { windup });
+          }
         }
       }
       // Лучник: стрельба по ближайшему к нему
       if (ranger.alive) {
         ranger.atkT -= dt;
         const tgt = nearestEnemy(run, ranger.x);
-        if (!ranger.attackPose && ranger.atkT <= 0 && tgt) {
+        if (!controlled(ranger) && !ranger.attackPose && ranger.atkT <= 0 && tgt) {
+          if (!run.autoSkills.has("multishot") || !useMultishot(run, tgt)) {
+            const windup = startAttackPose(ranger, Math.min(ranger.interval, AUTO_MOTION.ranger), ARROW_RELEASE);
+            queueAttack(run, ranger, tgt, "arrow", ranger.dmg, { windup, flight: 0.22, arc: 26, offsetX: -12 });
+          }
           ranger.atkT = ranger.interval;
-          const windup = startAttackPose(ranger, Math.min(ranger.interval, AUTO_MOTION.ranger), ARROW_RELEASE);
-          queueAttack(run, ranger, tgt, "arrow", ranger.dmg, { windup, flight: 0.22, arc: 26, offsetX: -12 });
         }
       }
-      if (priest.alive) castPriestSpell(run, priest);
+      if (priest.alive) castPriestAuto(run, priest);
     }
 
     // Враги: melee подходят к переднему герою, все бьют переднего живого
@@ -436,17 +559,19 @@ DWR.Sim = (function () {
       if (!e.alive) continue;
       if (e.appearT > 0) { e.appearT -= dt; continue; }
       if (e.ritual) {
-        e.ritual.t += dt;
-        if (e.ritual.t >= e.ritual.duration) e.ritual = null;
+        const ritual = e.ritual;
+        ritual.t += dt;
+        if (!ritual.hit && ritual.t >= ritual.duration) finishSummon(run, e);
+        if (ritual.t >= ritual.duration + cfg.battle.castReleaseFlash) e.ritual = null;
         continue;
       }
       const target = frontHero(run);
       if (!target) break;
       const wasWalking = e.walking;
-      if (!e.def.ranged) {
-        const stopX = target.x + 95 + e.lane;
+      if (!e.def.ranged && !e.attack?.howling) {
+        const stopX = target.x + (e.def.stopRange ?? 95) + e.lane;
         if (e.x > stopX) {
-          const step = Math.min(e.x - stopX, 170 * dt);
+          const step = Math.min(e.x - stopX, (e.def.speed ?? 170) * dt);
           e.x -= step;
           e.walkDistance += step;
           e.walking = true;
@@ -459,17 +584,21 @@ DWR.Sim = (function () {
   // --- Активные действия ---
   function skillStatus(run, skillId) {
     const s = C().skills[skillId], h = run.heroes[s.owner];
-    const cost = Math.max(0, s.cost - (run.stats[skillId + "Cost"] || 0));
-    const left = run.skillCooldowns.get(skillId) || 0;
-    const duration = Math.max(1, s.cooldown - (run.stats[skillId + "Haste"] || 0));
-    return { cost, left, duration, ready: h.alive && left === 0 && h[s.res] >= cost };
+    const cost = Math.max(1, s.cost - (run.stats[skillId + "Cost"] || 0));
+    const left = s.type === "auto" ? Math.max(0, h.atkT) : (run.skillCooldowns.get(skillId) || 0);
+    const cooldown = skillId === "heal" ? C().heroes.priest.healCD : s.cooldown;
+    const duration = s.type === "auto" ? h.interval : Math.max(1, cooldown - (run.stats[skillId + "Haste"] || 0));
+    const frozen = h.effects.has("frozen"), stunned = h.effects.has("stunned");
+    const casting = s.owner === "priest" && Boolean(h.attackPose);
+    return { cost, left, duration, frozen, stunned, casting,
+      ready: run.equipped.has(skillId) && h.alive && !frozen && !stunned && !casting && left === 0 && h[s.res] >= cost };
   }
 
   function spendSkill(run, skillId, hero, resource) {
     const state = skillStatus(run, skillId);
     if (!state.ready) return false;
     hero[resource] -= state.cost;
-    run.skillCooldowns.set(skillId, state.duration);
+    if (C().skills[skillId].type !== "auto") run.skillCooldowns.set(skillId, state.duration);
     return true;
   }
 
@@ -477,9 +606,20 @@ DWR.Sim = (function () {
     if (run.over || !inBattle(run)) return false;
     const e = run.enemies.find(x => x.uid === enemyUid && x.alive);
     const s = C().skills[skillId];
-    if (!e || s?.type !== "targeted") return false;
+    if (!e || s?.type !== "targeted" || (s.manualWhileAuto === false && run.autoSkills.has(skillId))) return false;
+    return castTargeted(run, skillId, e);
+  }
+
+  function castTargeted(run, skillId, e) {
+    const s = C().skills[skillId];
     const h = run.heroes[s.owner];
     if (!spendSkill(run, skillId, h, s.res)) return false;
+    if (skillId === "fireball") {
+      const windup = startAttackPose(h, AUTO_MOTION.priest, s.release);
+      queueAttack(run, h, e, "fire", s.dmg + (run.stats.fireDmg || 0),
+        { windup, flight: s.flight, offsetX: -12 });
+      return true;
+    }
     const duration = SKILL_SWING[skillId];
     h.atkT = Math.max(h.atkT, duration);
     if (skillId === "powerStrike") {
@@ -492,9 +632,23 @@ DWR.Sim = (function () {
     } else { // preciseShot
       interruptAutoAttack(run, h, "arrow");
       const windup = startAttackPose(h, duration, ARROW_RELEASE, skillId);
-      const damage = (s.dmg + (run.stats.rPrecision || 0)) * (1 + (e.boss ? run.stats.preciseBoss || 0 : 0));
-      queueAttack(run, h, e, "precise", damage, { windup, flight: 0.20, arc: 5 });
+      const precise = (s.dmg + (run.stats.rPrecision || 0)) * (1 + (e.boss ? run.stats.preciseBoss || 0 : 0));
+      queueAttack(run, h, e, "precise", precise, { windup, flight: 0.20, arc: 5 });
     }
+    return true;
+  }
+
+  function useHeal(run, heroId) {
+    const target = run.heroes[heroId];
+    const priest = run.heroes.priest;
+    const s = C().skills.heal;
+    if (run.over || !target?.alive) return false;
+    if (target.hp >= target.maxHp) return "full";
+    if (!spendSkill(run, "heal", priest, s.res)) return false;
+    priest.attackPose = { name: "heal", duration: s.animation, t: 0 };
+    const urgent = target.hp / target.maxHp <= 0.35 ? (run.stats.healOverflow || 0) : 0;
+    restoreHealth(run, target, priest.heal + urgent, { critical: rollCritical(priest) });
+    applyStatus(target, "healWard", run.stats.healWard);
     return true;
   }
 
@@ -504,36 +658,35 @@ DWR.Sim = (function () {
     if (s?.type !== "instant") return false;
     const h = run.heroes[s.owner];
     if (!spendSkill(run, skillId, h, s.res)) return false;
-    if (skillId === "block") {
-      h.blockT = s.durSec + run.stats.blockDur;
-      h.blockDuration = h.blockT;
-      restoreHealth(run, h, run.stats.blockHeal || 0);
-    } else { // multishot
-      const duration = SKILL_SWING[skillId];
-      h.atkT = Math.max(h.atkT, duration);
-      interruptAutoAttack(run, h, "arrow");
-      const windup = startAttackPose(h, duration, ARROW_RELEASE, skillId);
-      const count = s.targets + (run.stats.rExtraArrow || 0);
-      const alive = run.enemies.filter(e => e.alive).sort((a, b) => a.x - b.x).slice(0, count);
-      const damage = s.dmg + (run.stats.rFan || 0);
-      for (let i = 0; i < count; i++) {
-        const lane = i === 0 ? 0 : (i % 2 === 1 ? -1 : 1) * Math.ceil(i / 2);
-        // Базовый залп распределяется по целям. Стрелы от прокачки могут попасть повторно.
-        const repeat = !alive[i] && i >= s.targets;
-        const target = alive[i] || alive[repeat ? (i - s.targets) % alive.length : 0];
-        queueAttack(run, h, target, "multi", alive[i] ? damage : repeat ? damage * 0.5 : 0, {
-          windup, flight: 0.30, arc: 22 + lane * 32, offsetY: alive[i] ? 0 : repeat ? lane * 9 : lane * 44
-        });
-      }
+    h.blockT = s.durSec + run.stats.blockDur;
+    h.blockDuration = h.blockT;
+    restoreHealth(run, h, run.stats.blockHeal || 0);
+    return true;
+  }
+
+  function useMultishot(run, first) {
+    const id = "multishot", s = C().skills[id], ranger = run.heroes.ranger;
+    if (!spendSkill(run, id, ranger, s.res)) return false;
+    const others = run.enemies.filter(enemy => enemy.alive && enemy !== first)
+      .sort((a, b) => Math.abs(a.x - ranger.x) - Math.abs(b.x - ranger.x));
+    const targets = [first, ...others].slice(0, s.targets);
+    const windup = startAttackPose(ranger, Math.min(ranger.interval, SKILL_SWING.multishot), ARROW_RELEASE, id);
+    const power = s.arrowDamage + (run.stats.rFan || 0) * 0.02;
+    for (let i = 0; i < s.targets; i++) {
+      const targetIndex = i % targets.length, lane = i === 1 ? -1 : i === 2 ? 1 : 0;
+      const repeats = targetIndex + targets.length < s.targets;
+      const bonus = repeats ? (run.stats.rExtraArrow || 0) * 0.03 : 0;
+      queueAttack(run, ranger, targets[targetIndex], "multi", ranger.dmg * (power + bonus), {
+        windup, flight: 0.28, arc: 27 + lane * 15, offsetY: repeats ? lane * 10 : 0
+      });
     }
     return true;
   }
 
-  function cyclePriestMode(run) {
-    if (run.over || !run.heroes.priest.alive) return false;
-    const current = PRIEST_MODES.indexOf(run.priestMode);
-    run.priestMode = PRIEST_MODES[(current + 1) % PRIEST_MODES.length];
-    return true;
+  function setAuto(run, id, enabled) {
+    if (!C().skills[id]?.auto || !run.equipped.has(id) || run.over) return;
+    if (enabled) run.autoSkills.add(id);
+    else run.autoSkills.delete(id);
   }
 
   // Зелье; запрет при полном HP → "full"
@@ -542,14 +695,14 @@ DWR.Sim = (function () {
     if (run.over || !h?.alive || (!fromFloor && run.potionsLeft <= 0)) return false;
     if (h.hp >= h.maxHp) return "full";
     if (!fromFloor) run.potionsLeft--;
-    restoreHealth(run, h, C().loot.potionHealBase + run.stats.potionStr, true);
+    restoreHealth(run, h, C().loot.potionHealBase + run.stats.potionStr, { potion: true });
     const splash = run.stats.potionSquadHeal || 0;
     if (splash > 0) for (const hero of Object.values(run.heroes)) {
-      if (hero !== h && hero.alive) restoreHealth(run, hero, splash, true);
+      if (hero !== h && hero.alive) restoreHealth(run, hero, splash, { potion: true });
     }
     return true;
   }
 
-  return { createRun, spawnRoom, tick, useTargeted, useInstant, cyclePriestMode, usePotion,
-           inBattle, frontHero, nearestEnemy, priestSpellStatus, skillStatus, activeStatuses, applyStatus };
+  return { createRun, spawnRoom, tick, useTargeted, useInstant, useHeal, setAuto, usePotion,
+           inBattle, frontHero, nearestEnemy, skillStatus, activeStatuses, applyStatus };
 })();

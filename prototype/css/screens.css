@@ -139,6 +139,7 @@
 .scr-statusbar, .scr-status-info { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .scr-status-info span { display: flex; align-items: center; gap: 6px; color: var(--muted); }
 .scr-status-info b { color: var(--gold); }
+.scr-status-info .scr-camp-runes b { color: #ddd3ff; }
 .scr-status-info img { width: 22px; image-rendering: pixelated; }
 .scr-raid-grid { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 16px; }
 .scr-carousel { min-width: 0; display: grid; }
@@ -190,6 +191,18 @@
 .scr-carousel-prev span { transform: translateX(2px) rotate(-135deg); }
 .scr-carousel-next { right: 20px; }
 .scr-carousel-next span { transform: translateX(-2px) rotate(45deg); }
+.scr-card-preview .scr-carousel-art { object-position: center 60%; }
+.scr-card-preview::after {
+  background: linear-gradient(90deg, #111019a8, transparent 40%),
+    linear-gradient(0deg, #111019a0, transparent 34%);
+}
+.scr-demo-dialog {
+  width: min(560px, calc(100vw - 30px));
+  background: #121723d9;
+}
+.scr-demo-dialog::backdrop { background: #080f1560; backdrop-filter: none; }
+.scr-demo-dialog .scr-h2 { color: var(--gold); font-size: 30px; }
+.scr-demo-dialog p { margin: 10px 0 0; color: var(--ink); font-size: 16px; }
 .scr-party {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) 190px;
@@ -233,7 +246,7 @@
 .scr-report {
   padding: 16px 18px;
   display: grid;
-  grid-template-columns: 220px 120px minmax(0, 1fr) auto;
+  grid-template-columns: 220px 190px minmax(0, 1fr) auto;
   align-items: center;
   gap: 20px;
 }
@@ -250,14 +263,16 @@
 .scr-results-rewards {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 15px;
   padding-left: 18px;
   border-left: 1px solid var(--edge);
   color: var(--muted);
   font-size: 14px;
 }
+.scr-results-rewards > div { display: flex; align-items: center; gap: 5px; }
 .scr-results-rewards img { width: 24px; image-rendering: pixelated; }
 .scr-results-rewards b { display: block; color: var(--gold); font-size: 23px; line-height: 1.05; }
+.scr-results-rewards .scr-result-runes b { color: #ddd3ff; }
 .scr-result-roster { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
 .scr-result-hero {
   display: flex;

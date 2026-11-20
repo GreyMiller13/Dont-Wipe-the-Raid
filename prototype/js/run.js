@@ -7,7 +7,10 @@ DWR.Run = (function () {
   const CV = () => DWR.CONFIG.canvas;
   const FLOOR = 540;                 // линия пола сцены (совпадает с полом фоновых слайдов, сборка build_sprites.py)
   const BOARD = { x: 286, y: 108, w: 960, h: 443, scale: 0.75 };
-  const NEXT = { x: 1038, y: 607, w: 184, h: 51 };
+  const ARROW_SIZE = 72;
+  const NEXT = { x: BOARD.x + BOARD.w - 24 - ARROW_SIZE, y: BOARD.y + (BOARD.h - ARROW_SIZE) / 2, w: ARROW_SIZE, h: ARROW_SIZE };
+  const NEXT_RESULT = { x: NEXT.x - 8, y: NEXT.y + NEXT.h - 9, w: NEXT.w + 16, h: 21 };
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const BURGER = { x: 1130, y: 37, w: 116, h: 42 };
   const PAUSE = {
     retreat: { x: 490, y: 329, w: 300, h: 50 },
@@ -26,10 +29,29 @@ DWR.Run = (function () {
     potion: { size: 52, reach: 49, color: "#ff938a" }
   };
   const POTION_PICKUP_DELAY = 0.24;
+  const ICE_GROW = 0.42, ICE_THAW = 0.62, ICE_IMPACT = 0.4, GROUND_IMPACT = 0.46;
+  const ICE_BLOCK = new Path2D("M-76 -8 -81 -86 -58 -167 -20 -217 23 -214 65 -173 82 -102 74 -14 51 2 -55 2Z");
+  const ICE_FACETS = [
+    [new Path2D("M-76 -8 -81 -86 -58 -167 -37 -148 -42 -54 -55 2Z"), "#5ab1ec8a"],
+    [new Path2D("M-58 -167 -20 -217 23 -214 41 -184 -37 -148Z"), "#d0f5ffad"],
+    [new Path2D("M41 -184 65 -173 82 -102 74 -14 51 2 51 -77Z"), "#4f9ee69c"],
+    [new Path2D("M-37 -148 41 -184 51 -77 13 -52 -42 -54Z"), "#6ad3ef3d"],
+    [new Path2D("M-55 2 -42 -54 13 -52 51 -77 51 2Z"), "#a0e1ff4e"]
+  ];
+  const CAST_ART = {
+    smash: ["Удар по земле", "#ffd29a", "m5 4 5 1 9 10-4 4L5 9zM3 20h5m12-3 2 2m-11 0-2 3"],
+    buff: ["Некротическое усиление", "#edc286", "M12 21V3l-6 6m6-6 6 6M4 19v-5m16 5v-5"],
+    howl: ["Вой", "#ffe1a5", "M3 10h4l5-5v14l-5-5H3zm13-2q4 4 0 8m3-11q7 7 0 14"],
+    frost: ["Заморозка", "#bceaff", null],
+    summon: ["Призыв скелетов", "#d1b0fb", "M7 20v-4l-3-2V8l3-4h10l3 4v6l-3 2v4zM8 10h2m4 0h2m-6 6v4m4-4v4"]
+  };
+  for (const art of Object.values(CAST_ART)) if (art[2]) art[2] = new Path2D(art[2]);
   const MELEE_ART = {
     sword: { tint: "#ffbb72", core: "#fff1ce", duration: 0.24, scale: 1 },
     power: { tint: "#ffa052", core: "#fff1bc", duration: 0.32, scale: 1.35 },
     enemy: { tint: "#f27769", core: "#ffe1cb", duration: 0.24, scale: 1 },
+    bite: { tint: "#e8b17a", core: "#ffe9c5", duration: 0.23, scale: 0.83 },
+    claw: { tint: "#ce84cf", core: "#ffdef3", duration: 0.32, scale: 1.10 },
     smash: { tint: "#ff8d59", core: "#fff2ba", duration: 0.42, scale: 1.45 },
     guard: { tint: "#80baff", core: "#e3f4ff", duration: 0.26, scale: 1 }
   };
@@ -50,23 +72,44 @@ DWR.Run = (function () {
       sim,
       location, treasureOnly, seq: roomSeq(location, treasureOnly), roomIdx: 0,
       phase: "fadein", phaseT: 0,          // fadein | room | fadeout | wipeDelay
-      items: [], floaters: [], auras: [], explosions: [], beams: [], meleeImpacts: [], deaths: new Map(),
-      runCoins: 0, tempPanel,
+      items: [], floaters: [], auras: [], explosions: [], beams: [], meleeImpacts: [], deaths: new Map(), bossLoot: new Set(),
+      runCoins: 0, runRunes: 0, coinBonusCarry: 0, tempPanel,
       chestOpened: false, chestRect: { x: 532, y: FLOOR - 132, w: 170, h: 132 },
       menu: null,                           // null | {confirm:false} — открытое бургер-меню (пауза)
       drag: null,                           // {kind:'skill'|'potion'|'floorPotion', id?, item?}
       hoverTarget: null, potionHover: null, time: 0, flash: new Map()
     };
-    DWR.Panel.equipRunSkill(R, "fireball");
     loadRoom(0);
   }
 
   function curRoom() { return DWR.CONFIG.rooms[R.seq[R.roomIdx]]; }
+  function locationLoot() { return DWR.CONFIG.locations[R.location].loot; }
+  function hasFrozenHero() {
+    return R.sim.heroOrder.some(id => {
+      const hero = R.sim.heroes[id];
+      return hero.alive && hero.effects.has("frozen");
+    });
+  }
+
+  function deathProgress(unit) {
+    const since = R.deaths.get(unit);
+    const duration = unit.def?.death?.duration ?? unit.def?.fall?.duration ?? (unit.id ? 0.26 : 0.43);
+    return since === undefined ? 1 : Math.min(1, (R.time - since) / duration);
+  }
+
+  function hasFallingBoss() {
+    return R.sim.enemies.some(unit => unit.boss && !unit.alive && deathProgress(unit) < 1);
+  }
 
   function canAdvance() {
-    return R.phase === "room" && !DWR.Sim.inBattle(R.sim) && !R.sim.over &&
+    return R.phase === "room" && !DWR.Sim.inBattle(R.sim) && !R.sim.over && !R.sim.groundWaves.length &&
+      !hasFrozenHero() && !hasFallingBoss() &&
       !R.sim.attacks.some(attack => attack.target.id && attack.target.alive && !attack.resolved) &&
       (!curRoom().chest || R.chestOpened);
+  }
+
+  function nextTargetAt(x, y) {
+    return inRect(x, y, NEXT) || (R.roomIdx === R.seq.length - 1 && inRect(x, y, NEXT_RESULT));
   }
 
   function worldPoint(x, y) {
@@ -78,6 +121,7 @@ DWR.Run = (function () {
     R.roomIdx = i;
     R.phase = "fadein"; R.phaseT = 0; R.items = []; R.explosions = [];
     R.deaths.clear();
+    R.bossLoot.clear();
     R.flash.clear();
     R.floaters = []; R.auras = []; R.beams = []; R.meleeImpacts = [];
     R.potionHover = null;
@@ -93,7 +137,7 @@ DWR.Run = (function () {
     DWR.State.save();
     const currentCleared = curRoom().chest ? R.chestOpened : !DWR.Sim.inBattle(R.sim);
     DWR.showResults({
-      reason, coins: R.runCoins,
+      reason, coins: R.runCoins, runes: R.runRunes,
       roomsCleared: R.roomIdx + Number(currentCleared), roomsTotal: R.seq.length,
       roomId: curRoom().id, location: R.location, treasureOnly: R.treasureOnly,
       party: R.sim.heroOrder.map(id => {
@@ -107,8 +151,17 @@ DWR.Run = (function () {
   // --- Дроп лута за убийство ---
   function dropLoot(e) {
     const loot = DWR.CONFIG.loot, stats = R.sim.stats;
+    const local = locationLoot();
     const piles = e.boss ? 8 : 4;
-    const value = e.boss ? loot.coinPerBoss + stats.bossCoins : loot.coinPerGoblin + stats.raidCoins;
+    let value;
+    if (e.boss) value = (local?.boss ?? loot.coinPerBoss) + stats.bossCoins;
+    else {
+      const base = local?.normal ?? loot.coinPerGoblin;
+      // Остаток хранится в сотых долях монеты между комнатами одного рейда.
+      const bonus = R.coinBonusCarry + base * stats.raidCoins;
+      value = base + Math.floor(bonus / 100);
+      R.coinBonusCarry = bonus % 100;
+    }
     for (let i = 0; i < piles; i++) {
       spawnItem("coin", e.x, Math.floor((i + 1) * value / piles) - Math.floor(i * value / piles));
     }
@@ -195,7 +248,8 @@ DWR.Run = (function () {
     for (const ev of sim.events) {
       if (ev.type === "kill") {
         R.deaths.set(ev.unit, R.time);
-        dropLoot(ev.unit);
+        if (ev.boss && ev.unit.def.death) R.bossLoot.add(ev.unit);
+        else dropLoot(ev.unit);
         if (ev.boss) DWR.State.completeLocation(R.location);
       }
       if (ev.type === "heroDead") {
@@ -204,6 +258,11 @@ DWR.Run = (function () {
       }
     }
     sim.events.length = 0;
+    for (const boss of R.bossLoot) {
+      if (deathProgress(boss) < boss.def.death.land) continue;
+      R.bossLoot.delete(boss);
+      dropLoot(boss);
+    }
 
     // Визуальные эффекты удара возникают только после расчёта попадания.
     for (const f of sim.fx) {
@@ -212,11 +271,23 @@ DWR.Run = (function () {
       else if (f.type === "necroticImpact") R.auras.push({ x: f.x, y: FLOOR + f.y, t: 0.35, necrotic: true });
       else if (f.type === "status") R.auras.push({ unit: f.unit, t: 0.55, status: f.id });
       else if (f.type === "necroticBeam") R.beams.push({ ...f, t: 0 });
+      else if (f.type === "howl") R.auras.push({ x: f.x, y: FLOOR + f.y, t: 0.82, howl: true });
+      else if (f.type === "groundSmash") R.auras.push({ x: f.x, t: GROUND_IMPACT, groundSmash: true });
+      else if (f.type === "freeze" || f.type === "thaw") {
+        const { x, h } = f.unit;
+        R.auras.push({ x, h, t: f.type === "freeze" ? ICE_IMPACT : ICE_THAW, ice: f.type });
+      }
       else if (f.type === "summon") floater(f.minions[1].x, FLOOR - 220, "Призыв скелетов", "#c8a4ff");
-      else if (f.type === "hurt") { R.flash.set(f.unit, 0.18); floater(f.unit.x, FLOOR - f.unit.h - 8, "-" + f.amount, "#e88"); }
+      else if (f.type === "hurt") {
+        R.flash.set(f.unit, 0.18);
+        const frost = f.kind === "frost";
+        const amount = frost ? f.amount.toLocaleString("ru-RU", { maximumFractionDigits: 2 }) : f.amount;
+        floater(f.unit.x, FLOOR - f.unit.h - 8, (f.critical ? "Крит " : "") + "−" + amount,
+          frost ? DWR.CONFIG.effects.frozen.color : f.critical ? "#ffd092" : "#e88");
+      }
       else if (f.type === "heal") {
         R.auras.push({ unit: f.unit, t: 0.9, potion: f.potion });
-        floater(f.unit.x, FLOOR - f.unit.h - 8, "+" + f.amount, "#8ed0a0");
+        floater(f.unit.x, FLOOR - f.unit.h - 8, (f.critical ? "Крит " : "") + "+" + Math.round(f.amount), f.critical ? "#dbf5a1" : "#8ed0a0");
       }
     }
     sim.fx.length = 0;
@@ -227,6 +298,7 @@ DWR.Run = (function () {
   // --- Ввод (вызывает input.js) ---
   function onMouseMove(x, y) {
     if (!R) return;
+    if (R.drag?.origin && Math.hypot(x - R.drag.origin.x, y - R.drag.origin.y) > 5) R.drag.moved = true;
     updateCursor(x, y);
     if (R.phase === "room" && !R.menu) collectHoveredLoot();
   }
@@ -241,6 +313,8 @@ DWR.Run = (function () {
       if (item) pickUp(item);
       return;
     }
+    // При заполненной панели зелье можно перетащить с пола прямо на героя.
+    if (!R.tempPanel.includes("potion") && !R.tempPanel.includes(null)) return;
     // Короткая задержка даёт возможность подхватить зелье с пола ЛКМ.
     if (R.potionHover?.item !== item) R.potionHover = { item, since: R.time };
     else if (R.time - R.potionHover.since >= POTION_PICKUP_DELAY) {
@@ -257,7 +331,7 @@ DWR.Run = (function () {
     }
     const p = worldPoint(x, y);
     const pointer = R.phase === "room" && !R.menu && (
-      inRect(x, y, BURGER) || (canAdvance() && inRect(x, y, NEXT)) ||
+      inRect(x, y, BURGER) || (canAdvance() && nextTargetAt(x, y)) ||
       R.tempPanel[DWR.Panel.slotAt(R, x, y)] || (p && (
         (curRoom().chest && !R.chestOpened && inRect(p.x, p.y, R.chestRect)) ||
         R.items.some(it => it.grounded && nearLoot(p, it))
@@ -268,8 +342,8 @@ DWR.Run = (function () {
   function pickUp(it) {
     if (it.type === "coin") R.runCoins += it.value;
     else {
+      if (!DWR.Panel.equipRunSkill(R, "potion")) return;
       R.sim.potionsLeft++;
-      DWR.Panel.equipRunSkill(R, "potion");
     }
     R.items.splice(R.items.indexOf(it), 1);
     floater(it.x, it.y - 20, it.type === "coin" ? "+" + it.value : "Зелье", LOOT_ART[it.type].color);
@@ -279,7 +353,7 @@ DWR.Run = (function () {
   function dropTargetAt(x, y) {
     if (!R) return null;
     const p = worldPoint(x, y);
-    if (R.drag && (R.drag.kind === "potion" || R.drag.kind === "floorPotion")) {
+    if (R.drag && ["heal", "potion", "floorPotion"].includes(R.drag.kind)) {
       for (const [i, id] of R.sim.heroOrder.entries()) {
         const h = R.sim.heroes[id];
         if (h.alive && (inRect(x, y, partyCard(i)) || (p && isUnitTarget(p, h)))) return h;
@@ -297,7 +371,7 @@ DWR.Run = (function () {
     if (!R || R.phase !== "room") return;
     if (R.menu) { menuClick(x, y); return; }
     if (inRect(x, y, BURGER)) { R.menu = { confirm: false }; return; }
-    if (canAdvance() && inRect(x, y, NEXT)) { goNextRoom(); return; }
+    if (canAdvance() && nextTargetAt(x, y)) { goNextRoom(); return; }
     const p = worldPoint(x, y);
     if (p && curRoom().chest && !R.chestOpened && inRect(p.x, p.y, R.chestRect)) { openChest(); return; }
     // тап по слоту: мгновенные и переключатели
@@ -306,7 +380,11 @@ DWR.Run = (function () {
       const id = R.tempPanel[i];
       if (!id) return;
       const s = id !== "potion" ? DWR.CONFIG.skills[id] : null;
-      if (s && s.type === "cycle") DWR.Sim.cyclePriestMode(R.sim);
+      if (s?.auto) {
+        const enabled = !R.sim.autoSkills.has(id);
+        DWR.Sim.setAuto(R.sim, id, enabled);
+        DWR.State.setAuto(id, enabled);
+      }
       else if (s && s.type === "instant") {
         if (!DWR.Sim.useInstant(R.sim, id)) skillNotice(id);
       }
@@ -321,7 +399,10 @@ DWR.Run = (function () {
       const id = R.tempPanel[i];
       if (!id) return;
       const s = id !== "potion" ? DWR.CONFIG.skills[id] : null;
-      if (s && s.type === "targeted") R.drag = { kind: "skill", id };
+      const canAim = s && (s.manualWhileAuto !== false || !R.sim.autoSkills.has(id));
+      if (canAim && (s.type === "targeted" || s.type === "ally")) {
+        R.drag = { kind: s.type === "ally" ? "heal" : "skill", id, slot: i, origin: s.auto ? { x, y } : null };
+      }
       else if (id === "potion" && R.sim.potionsLeft > 0) R.drag = { kind: "potion" };
     } else {
       const p = worldPoint(x, y);
@@ -347,9 +428,14 @@ DWR.Run = (function () {
     const tgt = R.phase === "room" && !R.menu ? dropTargetAt(x, y) : null;
     const drag = R.drag;
     cancelDrag(x, y);
+    if (drag.origin && !drag.moved && DWR.Panel.slotAt(R, x, y) === drag.slot) return false;
     if (!tgt) return true; // промах — без траты
     if (drag.kind === "skill") {
       if (!DWR.Sim.useTargeted(R.sim, drag.id, tgt.uid)) skillNotice(drag.id);
+    } else if (drag.kind === "heal") {
+      const result = DWR.Sim.useHeal(R.sim, tgt.id);
+      if (result === "full") toast("Здоровье уже полное");
+      else if (!result) skillNotice("heal");
     } else {
       const fromFloor = drag.kind === "floorPotion";
       const index = fromFloor ? R.items.indexOf(drag.item) : -1;
@@ -365,16 +451,22 @@ DWR.Run = (function () {
     R.sim.attacks.length = 0;
     // перед уходом: неподнятое остаётся лежать (пропадёт с комнатой)
     R.phase = "fadeout"; R.phaseT = 0;
+    updateCursor(DWR.Input.x, DWR.Input.y);
   }
   function openChest() {
+    if (R.chestOpened || !DWR.State.openTreasure(R.location)) return;
     R.chestOpened = true;
-    if (!DWR.State.openTreasure(R.location)) return;
+    R.runRunes++;
     const L = DWR.CONFIG.loot;
     const x = R.chestRect.x + R.chestRect.w / 2;
-    for (let left = L.coinPerChest + R.sim.stats.chestCoins; left > 0; left -= 6) spawnItem("coin", x, Math.min(6, left));
+    R.runeDrop = { x, y: R.chestRect.y + 29, since: R.time };
+    floater(x, R.chestRect.y - 4, "+1 руна навыка", "#ddd3ff");
+    const coins = (locationLoot()?.chest ?? L.coinPerChest) + R.sim.stats.chestCoins;
+    for (let left = coins; left > 0; left -= 6) spawnItem("coin", x, Math.min(6, left));
   }
   function skillNotice(id) {
-    toast(DWR.Sim.skillStatus(R.sim, id).left > 0 ? "Навык перезаряжается" : "Навык недоступен");
+    const status = DWR.Sim.skillStatus(R.sim, id);
+    toast(status.frozen ? "Герой заморожен" : status.left > 0 ? "Навык перезаряжается" : "Навык недоступен");
   }
   function menuClick(x, y) {
     if (R.menu.confirm) {
@@ -403,6 +495,7 @@ DWR.Run = (function () {
     if (curRoom().chest) drawChest(ctx);
     drawThreats(ctx);
     drawUnits(ctx);
+    drawCastBars(ctx);
     drawLoot(ctx);
     drawFx(ctx);
     drawFade(ctx);
@@ -414,10 +507,14 @@ DWR.Run = (function () {
     drawParty(ctx);
     drawButton(ctx, BURGER, "Пауза");
     DWR.Panel.draw(ctx, R);
-    if (canAdvance()) drawButton(ctx, NEXT, R.roomIdx === R.seq.length - 1 ? "Завершить" : "Дальше", true);
+    if (canAdvance()) {
+      if (!R.menu) drawNextArrow(ctx);
+    }
     else {
-      const status = R.phase === "fadeout" ? "Переход между комнатами" : curRoom().chest ? "Откройте сундук" : "Бой в комнате";
-      text(ctx, status, 1221, 637, "14px", "#b0aaba", "right");
+      const status = R.phase === "fadeout" ? "Переход между комнатами" : curRoom().chest ? "Откройте сундук"
+        : !DWR.Sim.inBattle(R.sim) && hasFrozenHero() ? "Герой оттаивает"
+        : !DWR.Sim.inBattle(R.sim) && hasFallingBoss() ? "Босс повержен" : "Бой в комнате";
+      text(ctx, status, 1221, 593, "14px", "#b0aaba", "right");
     }
     drawDragHint(ctx);
     drawMenu(ctx);
@@ -462,11 +559,8 @@ DWR.Run = (function () {
   }
 
   function unitPose(u) {
-    if (!u.alive) {
-      const since = R.time - (R.deaths.get(u) ?? -1);
-      const fallTime = u.kind === "goblinKing" ? 0.64 : u.id ? 0.26 : 0.43;
-      return { pose: "dead", poseT: Math.min(1, since / fallTime) };
-    }
+    if (!u.alive) return { pose: "dead", poseT: deathProgress(u) };
+    if (u.effects.has("frozen")) return { pose: "frozen", poseT: 0 };
     if (u.attackPose) return { pose: u.attackPose.name, poseT: u.attackPose.t / u.attackPose.duration };
     if (u.walking) return { pose: "walk", poseT: DWR.Chars.walkProgress(u) };
     return { pose: "idle", poseT: 0 };
@@ -493,8 +587,10 @@ DWR.Run = (function () {
       ctx.restore();
       if (e.alive) {
         bar(ctx, e.x, FLOOR - e.h - 12, 74, 8, e.hp / e.maxHp, "#b8563e");
-        drawStatusBadges(ctx, e);
-      }
+        const showName = e.boss && e.def.spritePoses;
+        if (showName) text(ctx, e.def.name, e.x, FLOOR - e.h - 22, "600 18px", "#f6ddcf", "center");
+        drawStatusBadges(ctx, e, showName ? 23 : 0);
+      } else if (e.def.death && p.poseT < 1) drawBossDeathFx(ctx, e, p.poseT);
     }
     // герои
     for (const id of sim.heroOrder) {
@@ -508,27 +604,150 @@ DWR.Run = (function () {
         castReleased, flash: (R.flash.get(h) || 0) / 0.18 }, R.time);
       if (h.alive) {
         if (h.blockT > 0) drawBlockBubble(ctx, h);
+        const ice = h.effects.get("frozen");
+        if (ice) drawIceBlock(ctx, h.x, h.h, Math.min(1, (ice.duration - ice.left) / ICE_GROW));
         drawStatusBadges(ctx, h);
       }
     }
   }
 
-  function drawStatusBadges(ctx, unit) {
+  function drawCastBars(ctx) {
+    const rows = [], w = 142, h = 21, iconSize = 25, total = w + iconSize + 5;
+    for (const e of R.sim.enemies) {
+      const attack = e.attack;
+      const finished = attack?.hit && attack.t > attack.windup + DWR.CONFIG.battle.castReleaseFlash;
+      if (!e.alive || (!e.ritual && (!attack || finished))) continue;
+      const key = e.ritual ? "summon" : attack.freezing ? "frost" : attack.howling ? "howl"
+        : attack.heavy ? "smash" : attack.buffing ? "buff" : null;
+      if (!key) continue;
+      const progress = Math.min(1, e.ritual ? e.ritual.t / e.ritual.duration : attack.t / attack.windup);
+      const x = Math.max(8, Math.min(e.x - total / 2, CV().w - total - 8));
+      const aboveName = e.boss && e.def.spritePoses ? 23 : 0;
+      let y = Math.max(6, FLOOR - e.h - (e.effects.size ? 77 : 47) - aboveName);
+      while (y > 6 && rows.some(row => Math.abs(row.y - y) < iconSize + 4 && Math.abs(row.x - x) < total + 4)) {
+        y = Math.max(6, y - iconSize - 4);
+      }
+      rows.push({ x, y });
+      drawCastBar(ctx, x, y, iconSize, w, h, CAST_ART[key], progress);
+    }
+  }
+
+  function drawCastBar(ctx, x, y, iconSize, w, h, [name, color, icon], progress) {
+    ctx.save();
+    box(ctx, x, y, iconSize, iconSize, "#181723", color, 5);
+    if (icon) {
+      ctx.save();
+      ctx.translate(x + 3, y + 3);
+      ctx.scale(0.79, 0.79);
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
+      ctx.stroke(icon);
+      ctx.restore();
+    } else drawSnowflake(ctx, x + iconSize / 2, y + iconSize / 2, 8, color, 1.8);
+
+    const left = x + iconSize + 5, top = y + (iconSize - h) / 2;
+    box(ctx, left, top, w, h, "#181723", color, 5);
+    ctx.save();
+    roundRect(ctx, left + 1, top + 1, w - 2, h - 2, 4);
+    ctx.clip();
+    const filled = (w - 2) * progress;
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.48;
+    ctx.fillRect(left + 1, top + 1, filled, h - 2);
+    if (filled > 2) {
+      ctx.globalAlpha = 0.95;
+      ctx.fillRect(left + filled - 1, top + 1, 2, h - 2);
+    }
+    ctx.restore();
+    ctx.font = "600 12px Segoe UI"; ctx.textAlign = "left";
+    ctx.fillStyle = "#fff5ea";
+    ctx.fillText(name, left + 7, top + 15, w - 13);
+    ctx.restore();
+  }
+
+  function drawBossDeathFx(ctx, boss, progress) {
+    const { x, h, kind, facing, def } = boss;
+    const { land, tint } = def.death;
+    const spectral = kind === "lich";
+    if (spectral && progress < land) drawLichDeathGlow(ctx, boss, progress / land, tint);
+    const age = (progress - land) / (1 - land);
+    if (age < 0) return;
+    const fallsForward = kind === "lycan" || (spectral && x + h > CV().w);
+    const impactX = x + facing * (fallsForward ? 1 : -1) * h * 0.24;
+    ctx.save();
+    ctx.translate(impactX, FLOOR);
+    const flash = 1 - age;
+    const dust = ctx.createRadialGradient(0, 0, 2, 0, 0, h * (0.18 + age * 0.28));
+    dust.addColorStop(0, tint + "ab"); dust.addColorStop(1, tint + "00");
+    ctx.fillStyle = dust;
+    ctx.globalAlpha = flash * 0.85;
+    ctx.beginPath(); ctx.ellipse(0, 0, h * (0.18 + age * 0.28), 10 + age * 22, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = tint;
+    ctx.lineWidth = 1 + flash * 3;
+    ctx.beginPath();
+    ctx.ellipse(0, 2, h * (0.13 + age * 0.39), 6 + age * 15, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    for (let i = 0; i < 21; i++) {
+      const px = Math.sin(i * 2.37) * h * (0.09 + age * 0.43);
+      const py = -4 - Math.sin(Math.PI * age) * (16 + (i % 6) * 12);
+      const size = (4 + i % 5) * (1 - age * 0.65);
+      ctx.fillStyle = i % 3 ? tint : "#fff1d6";
+      ctx.globalAlpha = flash * (0.43 + (i % 3) * 0.22);
+      ctx.fillRect(Math.round(px), Math.round(py), size, spectral ? size * 1.6 : size);
+    }
+    ctx.restore();
+  }
+
+  function drawLichDeathGlow(ctx, boss, age, tint) {
+    const x = boss.x + boss.facing * boss.h * 0.25;
+    const y = FLOOR - boss.h * 0.78;
+    ctx.save();
+    const brightness = Math.min(1, age * 7) * (1 - age);
+    ctx.globalAlpha = brightness;
+    const glow = ctx.createRadialGradient(x, y, 4, x, y, 72);
+    glow.addColorStop(0, "#e4d7ff"); glow.addColorStop(0.46, "#ab8fed8f"); glow.addColorStop(1, "#7654c700");
+    ctx.fillStyle = glow;
+    ctx.fillRect(x - 72, y - 72, 144, 144);
+    for (let i = 0; i < 17; i++) {
+      const spread = Math.sin(i * 2.4) * (13 + age * 78);
+      ctx.fillStyle = i % 2 ? tint : "#ecdcff";
+      ctx.fillRect(Math.round(x + spread), Math.round(y + (i % 5) * 14 - age * (35 + (i % 4) * 38)),
+        3 + i % 3, 6 + i % 4);
+    }
+    ctx.restore();
+  }
+
+  function drawStatusBadges(ctx, unit, offset = 0) {
     const statuses = DWR.Sim.activeStatuses(unit);
     const size = 27, advance = size + 5;
-    const y = FLOOR - unit.h - 46;
+    const y = FLOOR - unit.h - 46 - offset;
     ctx.save();
     ctx.imageSmoothingEnabled = false;
     for (const [i, status] of statuses.entries()) {
       const x = unit.x + (i - (statuses.length - 1) / 2) * advance - size / 2;
       const image = status.id === "block" ? DWR.Assets.icons.block : DWR.Assets.statusIcons[status.id];
-      const border = status.id === "block" ? "#f1c887" : "#c5a3ec";
+      const border = DWR.CONFIG.effects[status.id]?.color ?? (status.id === "block" ? "#f1c887" : "#c5a3ec");
       box(ctx, x, y, size, size, "#292234", border, 5);
       if (image?.naturalWidth) ctx.drawImage(image, x + 3, y + 3, size - 6, size - 6);
-      ctx.globalAlpha = Math.min(0.9, 0.9 * (1 - status.left / status.duration));
-      ctx.beginPath(); ctx.roundRect(x, y, size, size, 5);
-      ctx.fillStyle = "#0c0914"; ctx.fill();
-      ctx.globalAlpha = 1;
+      else {
+        ctx.fillStyle = border;
+        if (status.id === "stunned") {
+          ctx.beginPath();
+          ctx.moveTo(x + 15, y + 4); ctx.lineTo(x + 7, y + 15); ctx.lineTo(x + 13, y + 15);
+          ctx.lineTo(x + 11, y + 23); ctx.lineTo(x + 20, y + 11); ctx.lineTo(x + 14, y + 11);
+          ctx.closePath(); ctx.fill();
+        } else if (status.id === "frozen") {
+          drawSnowflake(ctx, x + size / 2, y + size / 2, 9, border, 2);
+        } else if (status.id === "lycanRegen") {
+          ctx.fillRect(x + 11, y + 5, 5, 17);
+          ctx.fillRect(x + 5, y + 11, 17, 5);
+        }
+      }
+      if (Number.isFinite(status.duration)) {
+        ctx.globalAlpha = Math.min(0.9, 0.9 * (1 - status.left / status.duration));
+        ctx.beginPath(); ctx.roundRect(x, y, size, size, 5);
+        ctx.fillStyle = "#0c0914"; ctx.fill();
+        ctx.globalAlpha = 1;
+      }
     }
     ctx.restore();
   }
@@ -537,26 +756,51 @@ DWR.Run = (function () {
     for (const e of R.sim.enemies) {
       if (!e.alive) continue;
       if (e.appearT > 0) drawSummonCircle(ctx, e);
-      if (e.ritual || (e.attack?.beam && !e.attack.hit)) drawLichCharge(ctx, e);
+      if ((e.ritual && !e.ritual.hit) || ((e.attack?.beam || e.attack?.freezing) && !e.attack.hit)) drawLichCharge(ctx, e);
+      if (e.attack?.howling && !e.attack.hit) {
+        const phase = Math.min(1, e.attack.t / e.attack.windup);
+        drawHowlWave(ctx, e.x, FLOOR - e.h * 0.84, phase, true);
+      }
       if (e.kind === "skeletonM" && e.attack && !e.attack.hit) {
         const staff = DWR.Chars.staffPoint(e);
         if (staff) drawMageOrb(ctx, staff.x, FLOOR + staff.y, e.attack.t / e.attack.windup, e.attack.buffing);
       }
     }
-    for (const { alive, attack } of R.sim.enemies) {
-      if (!alive || !attack?.heavy || attack.hit) continue;
+    for (const { alive, attack, x: enemyX, facing, def } of R.sim.enemies) {
+      if (!alive || !attack || attack.hit || !(attack.heavy || attack.wave || attack.party)) continue;
       const k = attack.t / attack.windup;
+      const direction = Math.sign(attack.targetX - enemyX) || facing;
+      const range = attack.wave?.range ?? 0;
+      const x = attack.heavy ? (attack.groundX + def.smash.contactReach) / 2
+        : attack.party ? CV().w / 2 : attack.targetX + range * direction / 2;
+      const radius = attack.heavy ? Math.max(4, x) : attack.party ? CV().w / 2 - 18 : range / 2 || 90;
       ctx.save();
       ctx.globalAlpha = 0.28 + 0.65 * k;
       ctx.beginPath();
-      ctx.ellipse(attack.targetX, FLOOR + 2, 90, 22, 0, 0, Math.PI * 2);
-      ctx.fillStyle = "#c7523549"; ctx.fill();
-      ctx.lineWidth = 3; ctx.strokeStyle = "#ff9569"; ctx.stroke();
+      ctx.ellipse(x, FLOOR + 2, radius, 22, 0, 0, Math.PI * 2);
+      ctx.fillStyle = attack.heavy ? "#c7523549" : "#ba529666"; ctx.fill();
+      ctx.lineWidth = 3; ctx.strokeStyle = attack.heavy ? "#ff9569" : "#e78dc4"; ctx.stroke();
       ctx.beginPath();
-      ctx.ellipse(attack.targetX, FLOOR + 2, 89 * k, 21 * k, 0, 0, Math.PI * 2);
+      ctx.ellipse(x, FLOOR + 2, (radius - 1) * k, 21 * k, 0, 0, Math.PI * 2);
       ctx.strokeStyle = "#ffd092"; ctx.stroke();
       ctx.restore();
     }
+  }
+
+  function drawHowlWave(ctx, x, y, progress, charging = false) {
+    const count = charging ? 2 : 3;
+    ctx.save();
+    ctx.strokeStyle = charging ? "#ffd98d" : "#ffe6ad";
+    ctx.lineWidth = charging ? 3 : 5;
+    for (let i = 0; i < count; i++) {
+      const k = charging ? (1 - progress) * 0.70 + i * 0.24 : progress - i * 0.14;
+      if (k < 0) continue;
+      ctx.globalAlpha = charging ? (0.35 + progress * 0.48) : Math.max(0, 0.82 * (1 - progress));
+      ctx.beginPath();
+      ctx.ellipse(x, y, 24 + k * (charging ? 84 : 560), 16 + k * (charging ? 50 : 160), 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   function drawSummonCircle(ctx, unit) {
@@ -576,6 +820,23 @@ DWR.Run = (function () {
     ctx.restore();
   }
 
+  function drawSnowflake(ctx, x, y, radius, color, width, rotation = 0) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rotation);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      ctx.moveTo(0, 0); ctx.lineTo(radius, 0);
+      ctx.moveTo(radius * 0.49, -radius * 0.26); ctx.lineTo(radius * 0.69, 0);
+      ctx.lineTo(radius * 0.49, radius * 0.26);
+      ctx.rotate(Math.PI / 3);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
   function drawLichCharge(ctx, enemy) {
     const attack = enemy.ritual ? { ritual: true, t: enemy.ritual.t, windup: enemy.ritual.duration } : enemy.attack;
     const staff = DWR.Chars.staffPoint(enemy, attack);
@@ -585,13 +846,22 @@ DWR.Run = (function () {
     ctx.save();
     ctx.globalAlpha = 0.28 + charge * 0.62;
     ctx.beginPath(); ctx.arc(staff.x, y, 12 + charge * 14, 0, Math.PI * 2);
-    ctx.strokeStyle = attack.ritual ? "#d0a1ff" : "#96ffe0";
+    ctx.strokeStyle = attack.ritual ? "#d0a1ff" : attack.freezing ? "#9fddff" : "#96ffe0";
     ctx.lineWidth = 3; ctx.stroke();
     if (!attack.ritual) {
       ctx.setLineDash([6, 9]);
       ctx.lineDashOffset = -R.time * 55;
       ctx.beginPath(); ctx.moveTo(staff.x, y); ctx.lineTo(attack.targetX, FLOOR + attack.targetY);
       ctx.lineWidth = 1.5; ctx.stroke();
+    }
+    if (attack.freezing) {
+      const glow = ctx.createRadialGradient(staff.x, y, 2, staff.x, y, 32 + charge * 12);
+      glow.addColorStop(0, "#ccf9ffbc"); glow.addColorStop(1, "#479fff00");
+      ctx.fillStyle = glow;
+      ctx.fillRect(staff.x - 45, y - 45, 90, 90);
+      ctx.setLineDash([]);
+      drawSnowflake(ctx, staff.x, y, 11 + charge * 10, "#eafdff", 2.6, charge * Math.PI / 2);
+      drawSnowflake(ctx, attack.targetX, FLOOR + attack.targetY, 12 + charge * 7, "#bceaff", 2.3);
     }
     ctx.restore();
   }
@@ -670,17 +940,22 @@ DWR.Run = (function () {
     ctx.scale(side * art.scale, art.scale);
     ctx.fillStyle = art.tint;
     ctx.globalAlpha = Math.max(0, 1 - age * 1.6);
-    ctx.beginPath();
-    ctx.moveTo(42, -43 + 16 * age);
-    ctx.quadraticCurveTo(14, -40, -31, 33);
-    ctx.quadraticCurveTo(-3, -28, 42, -43 + 16 * age);
-    ctx.fill();
     ctx.strokeStyle = art.core;
     ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.moveTo(26, -34);
-    ctx.quadraticCurveTo(2, -19, -20, 16);
-    ctx.stroke();
+    for (const offset of kind === "claw" ? [-15, 0, 15] : [0]) {
+      ctx.save();
+      ctx.translate(offset * 0.8, offset);
+      ctx.beginPath();
+      ctx.moveTo(42, -43 + 16 * age);
+      ctx.quadraticCurveTo(14, -40, -31, 33);
+      ctx.quadraticCurveTo(kind === "claw" ? 3 : -3, -28, 42, -43 + 16 * age);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(26, -34);
+      ctx.quadraticCurveTo(2, -19, -20, 16);
+      ctx.stroke();
+      ctx.restore();
+    }
 
     ctx.globalAlpha = (1 - age) ** 1.35;
     for (let i = 0; i < 9; i++) {
@@ -762,6 +1037,18 @@ DWR.Run = (function () {
       if (it.type === "potion") DWR.Panel.drawIcon(ctx, "potion", it.x - size / 2, it.y - size / 2, size);
       else if (coinImg.naturalWidth) ctx.drawImage(coinImg, it.x - size / 2, it.y - size / 2, size, size);
     }
+    const rune = DWR.Assets.img.rune;
+    if (R.runeDrop && rune?.naturalWidth) {
+      const { x, y, since } = R.runeDrop;
+      const age = (R.time - since) / 1.1;
+      if (age < 1) {
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, 4 * (1 - age));
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(rune, x - 24, y - 66 * Math.sin(age * Math.PI / 2), 48, 48);
+        ctx.restore();
+      }
+    }
   }
 
   const ARROW_ART = {
@@ -803,8 +1090,8 @@ DWR.Run = (function () {
     let grip;
     if (kind === "fire") grip = DWR.Chars.fireRelease(caster);
     else if (kind === "enemyArrow") grip = DWR.Chars.enemyBowRelease(caster);
-    else if (kind === "necroticOrb") {
-      grip = DWR.Chars.staffPoint(caster, { t: 1, windup: 1 });
+    else if (kind === "necroticOrb" || kind === "frost") {
+      grip = DWR.Chars.staffPoint(caster, { t: 1, windup: 1, freezing: kind === "frost" });
     }
     else if (kind !== "slash") {
       const pose = kind === "multi" ? "multishot" : kind === "precise" ? "preciseShot" : undefined;
@@ -830,6 +1117,17 @@ DWR.Run = (function () {
       }
     } else if (kind === "necroticOrb") {
       drawMageOrb(ctx, x, y, 0.91, false, angle);
+    } else if (kind === "frost") {
+      ctx.save();
+      ctx.translate(x, y); ctx.rotate(angle);
+      ctx.beginPath(); ctx.moveTo(-55, 0); ctx.lineTo(-5, -13); ctx.lineTo(24, 0);
+      ctx.lineTo(-5, 13); ctx.closePath();
+      ctx.fillStyle = "#69c5fb80"; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-16, 0); ctx.lineTo(-3, -9); ctx.lineTo(22, 0);
+      ctx.lineTo(-3, 9); ctx.closePath();
+      ctx.fillStyle = "#dcfbff"; ctx.fill();
+      ctx.restore();
+      drawSnowflake(ctx, x, y, 13, "#d3f2ff", 2, k * Math.PI);
     } else if (kind === "slash") {
       ctx.save();
       ctx.translate(x, y);
@@ -844,20 +1142,142 @@ DWR.Run = (function () {
     }
   }
 
+  function drawClawWave(ctx, wave) {
+    const x = wave.origin + wave.direction * wave.distance;
+    const fade = Math.min(1, (wave.range - wave.distance) / 42);
+    ctx.save();
+    ctx.translate(x, FLOOR - 8);
+    ctx.scale(wave.direction, 1);
+    ctx.globalAlpha = fade;
+
+    const ground = ctx.createRadialGradient(-12, 0, 2, -12, 0, 52);
+    ground.addColorStop(0, "#d57cca9e");
+    ground.addColorStop(1, "#a24d9100");
+    ctx.fillStyle = ground;
+    ctx.beginPath();
+    ctx.ellipse(-12, 0, 54, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    for (let i = 2; i >= 0; i--) {
+      const tail = -i * 15, height = 100 - i * 15;
+      ctx.globalAlpha = fade * (1 - i * 0.23);
+      ctx.fillStyle = "#d98ace";
+      ctx.beginPath();
+      ctx.moveTo(tail - 20, -height);
+      ctx.quadraticCurveTo(tail + 18, -height * 0.67, tail, -8);
+      ctx.quadraticCurveTo(tail - 3, -height * 0.55, tail - 20, -height);
+      ctx.fill();
+      ctx.strokeStyle = "#ffe2f4";
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      ctx.moveTo(tail - 16, -height + 5);
+      ctx.quadraticCurveTo(tail + 12, -height * 0.69, tail, -16);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawSmashWave(ctx, wave) {
+    const x = wave.origin + wave.direction * wave.distance;
+    ctx.save();
+    ctx.translate(x, FLOOR - 1);
+    ctx.scale(wave.direction, 1);
+    ctx.globalAlpha = Math.min(1, 0.15 + (wave.range - wave.distance) / 65);
+    const glow = ctx.createLinearGradient(0, -82, 0, 13);
+    glow.addColorStop(0, "#ffbd5c09"); glow.addColorStop(0.72, "#ed794a77"); glow.addColorStop(1, "#ffe1a1dc");
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.moveTo(-105, 4); ctx.lineTo(-77, -21); ctx.lineTo(-55, -19);
+    ctx.lineTo(-38, -50); ctx.lineTo(-22, -39); ctx.lineTo(-15, -78); ctx.lineTo(4, -49);
+    ctx.lineTo(17, -26); ctx.lineTo(24, 2); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "#ffd18c"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-95, 3); ctx.lineTo(-65, -3); ctx.lineTo(-43, 5); ctx.lineTo(-22, -4);
+    ctx.lineTo(-5, 3); ctx.lineTo(22, 0); ctx.lineTo(7, -29); ctx.lineTo(-9, -48); ctx.stroke();
+    for (let i = 0; i < 9; i++) {
+      const age = (wave.distance / 94 + i * 0.37) % 1;
+      ctx.fillStyle = i % 2 ? "#835039" : "#dfb180";
+      ctx.fillRect(-16 - 65 * age + (i % 3) * 9, -4 - Math.sin(age * Math.PI) * (15 + i * 4), 4 + i % 4, 4 + i % 4);
+    }
+    ctx.restore();
+  }
+
+  function drawGroundSmash(ctx, x, progress) {
+    ctx.save();
+    ctx.globalAlpha = 1 - progress;
+    ctx.strokeStyle = "#ffd18c";
+    ctx.lineWidth = 6 - 4 * progress;
+    ctx.beginPath(); ctx.ellipse(x, FLOOR, 16 + 108 * progress, 5 + 20 * progress, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = "#fff0b5";
+    ctx.beginPath(); ctx.ellipse(x, FLOOR - 1, 39 * (1 - progress) + 2, 10 * (1 - progress) + 1, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawIceBlock(ctx, x, height, rise, opacity = 1) {
+    const scale = height / 210;
+    ctx.save();
+    ctx.translate(x, FLOOR);
+    ctx.scale(scale, scale);
+    ctx.globalAlpha = opacity;
+    const visible = 222 * rise * (2 - rise);
+    ctx.beginPath(); ctx.rect(-90, -visible, 180, visible + 6); ctx.clip();
+    const tint = ctx.createLinearGradient(-66, 0, 51, -202);
+    tint.addColorStop(0, "#3873aa9b"); tint.addColorStop(0.54, "#509cd96e"); tint.addColorStop(1, "#b0edffb5");
+    ctx.fillStyle = tint; ctx.fill(ICE_BLOCK);
+    for (const [facet, color] of ICE_FACETS) {
+      ctx.fillStyle = color; ctx.fill(facet);
+    }
+    ctx.strokeStyle = "#a2e8ffa8"; ctx.lineWidth = 3; ctx.lineJoin = "round"; ctx.stroke(ICE_BLOCK);
+    ctx.strokeStyle = "#e0f9ffb0"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-55, -155); ctx.lineTo(-16, -205); ctx.lineTo(15, -204);
+    ctx.moveTo(64, -148); ctx.lineTo(69, -98); ctx.lineTo(63, -61);
+    ctx.moveTo(-40, -75); ctx.lineTo(-17, -97); ctx.lineTo(-3, -124); ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawIceParticles(ctx, { x, h }, progress, thawing) {
+    ctx.save();
+    ctx.globalAlpha = 1 - progress;
+    for (let i = 0; i < 14; i++) {
+      const dx = Math.cos(i * 2.4) * (thawing ? 44 : 14) + Math.cos(i * 2.4) * progress * 48;
+      const y = thawing ? -h * (0.16 + (i % 7) * 0.12) + 160 * progress ** 1.6
+        : -h * 0.56 + Math.sin(i * 2.4) * (12 + progress * 85);
+      const size = 3 + i % 4;
+      ctx.fillStyle = i % 2 ? "#80c6f3" : "#dcfbff";
+      ctx.beginPath(); ctx.moveTo(x + dx, FLOOR + y - size);
+      ctx.lineTo(x + dx + size, FLOOR + y); ctx.lineTo(x + dx - 1, FLOOR + y + size * 1.5);
+      ctx.lineTo(x + dx - size, FLOOR + y); ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function drawFx(ctx) {
     drawNecroticBeams(ctx);
     for (const shot of R.sim.attacks) {
       if (shot.flight > 0 && shot.startX !== null) drawProjectile(ctx, shot);
+    }
+    for (const wave of R.sim.groundWaves) {
+      if (wave.kind === "smash") drawSmashWave(ctx, wave);
+      else drawClawWave(ctx, wave);
     }
     for (const { x, y, t } of R.explosions)
       drawFireFrame(ctx, "fireball-impact", t / EXPLOSION_SECONDS, x, y, 45, 41);
     for (const hit of R.meleeImpacts) drawMeleeImpact(ctx, hit);
     for (const a of R.auras) {
       // лечение — мягкое свечение вокруг героя (не глухая плашка поверх спрайта)
-      if (a.necrotic) {
+      if (a.howl) {
+        drawHowlWave(ctx, a.x, a.y, 1 - a.t / 0.82);
+      } else if (a.groundSmash) {
+        drawGroundSmash(ctx, a.x, 1 - a.t / GROUND_IMPACT);
+      } else if (a.ice === "freeze") {
+        drawIceParticles(ctx, a, 1 - a.t / ICE_IMPACT, false);
+      } else if (a.ice === "thaw") {
+        const remaining = a.t / ICE_THAW;
+        drawIceBlock(ctx, a.x, a.h, remaining ** 1.6, remaining);
+        drawIceParticles(ctx, a, 1 - remaining, true);
+      } else if (a.necrotic) {
         drawNecroticBurst(ctx, a.x, a.y, 1 - a.t / 0.35, "#8ff3d2");
       } else if (a.status) {
-        drawNecroticBurst(ctx, a.unit.x, FLOOR - a.unit.h * 0.55, 1 - a.t / 0.55, "#d8a2fc");
+        const color = DWR.CONFIG.effects[a.status]?.color ?? "#d8a2fc";
+        drawNecroticBurst(ctx, a.unit.x, FLOOR - a.unit.h * 0.55, 1 - a.t / 0.55, color);
       } else if (a.unit) {
         const k = Math.min(1, a.t * 2.5);
         const r = (a.unit.h || 210) * 0.55;
@@ -897,6 +1317,45 @@ DWR.Run = (function () {
     box(ctx, r.x, r.y, r.w, r.h, primary ? (hover ? "#ffe3ba" : "#ffd092") : (hover ? "#30313e" : "#22232f"),
         primary || hover ? "#ffd092" : "#454451");
     text(ctx, label, r.x + r.w / 2, r.y + r.h / 2 + 5, "600 15px", primary ? "#201713" : "#f5eee5", "center");
+  }
+
+  function drawNextArrow(ctx) {
+    const x = NEXT.x + NEXT.w / 2, y = NEXT.y + NEXT.h / 2;
+    const hover = nextTargetAt(DWR.Input.x, DWR.Input.y);
+    const pulse = reducedMotion.matches ? 0 : (1 - Math.cos(R.time * 2 * Math.PI / 1.6)) / 2;
+    const scale = 1 + pulse * 0.12 + (hover ? 0.05 : 0);
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.beginPath();
+    ctx.moveTo(-25, -8);
+    ctx.lineTo(-1, -8);
+    ctx.lineTo(-1, -20);
+    ctx.lineTo(26, 0);
+    ctx.lineTo(-1, 20);
+    ctx.lineTo(-1, 8);
+    ctx.lineTo(-25, 8);
+    ctx.closePath();
+    ctx.lineJoin = "round";
+    ctx.shadowColor = "#edaf6090";
+    ctx.shadowBlur = 7 + pulse * 9;
+    ctx.fillStyle = hover ? "#6b492d" : "#332523";
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = "#19151d";
+    ctx.stroke();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = hover ? "#ffe4ab" : "#eec179";
+    ctx.stroke();
+    ctx.restore();
+
+    if (R.roomIdx === R.seq.length - 1) {
+      const { x: left, y: top, w, h } = NEXT_RESULT;
+      box(ctx, left, top, w, h, "#19151dea", "#a27d4d", 5);
+      text(ctx, "К итогам", x, top + 15, "600 12px", "#ffe4ab", "center");
+    }
   }
 
   function drawHeader(ctx) {
@@ -955,23 +1414,25 @@ DWR.Run = (function () {
         continue;
       }
       text(ctx, Math.ceil(h.hp) + "/" + h.maxHp, 251, cy + 13, "12px", "#e1d7dd", "right");
-      bar(ctx, 177, cy + 22, 146, 7, hp, hp > 0.35 ? "#86c89e" : "#ff867d");
+      bar(ctx, 149, cy + 22, 90, 7, hp, hp > 0.35 ? "#86c89e" : "#ff867d");
+      text(ctx, "Крит " + Math.round(h.critChance * 100) + "%", 251, cy + 30, "11px", "#ffd092", "right");
       const max = key === "mana" ? h.manaMax : DWR.CONFIG.resources[key].max;
       if (max > 0) {
-        text(ctx, key === "mana" ? resource + " " + h.mana + "/" + max : resource, 104, cy + 47, "12px", "#b0aaba");
+        const value = key === "rage" ? resource : resource + " " + Math.floor(h[key]) + "/" + max;
+        text(ctx, value, 104, cy + 47, "12px", "#b0aaba");
         bar(ctx, 217, cy + 40, 66, 6, h[key] / max, color);
       }
       if (id === "priest") {
-        const mode = DWR.CONFIG.priestModes[R.sim.priestMode];
-        const cast = R.sim.priestMode === "balance" && h.attackPose;
-        const activity = cast ? (cast.name === "heal" ? " · лечит" : " · фаербол") : "";
-        text(ctx, "Режим", 104, cy + 67, "12px", "#b0aaba");
-        text(ctx, mode.name + activity, 251, cy + 67, "600 13px", mode.color, "right");
+        const auto = ["heal", "fireball"].filter(skill => R.sim.autoSkills.has(skill))
+          .map(skill => DWR.CONFIG.skills[skill].name.toLowerCase()).join(" и ");
+        text(ctx, "Авто", 104, cy + 67, "12px", "#b0aaba");
+        text(ctx, auto || "выкл.", 251, cy + 67, "600 12px", "#a9dfc2", "right");
       }
     }
     box(ctx, 34, 443, 230, 108, "#191a23", "#353542");
     text(ctx, "Добыча за рейд", 49, 465, "600 15px", "#f5eee5");
     text(ctx, R.runCoins + " монет", 49, 491, "600 16px", "#ffd092");
+    text(ctx, "Руны " + R.runRunes, 249, 491, "600 15px", "#ddd3ff", "right");
     text(ctx, "Наведите курсор на добычу,", 49, 515, "13px", "#b0aaba");
     text(ctx, "чтобы её подобрать", 49, 533, "13px", "#b0aaba");
   }

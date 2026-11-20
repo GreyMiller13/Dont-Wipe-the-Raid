@@ -11,10 +11,13 @@ DWR.State = (function () {
     return {
       started: false,          // true после «Новой игры»
       coins: 0,
+      runes: DWR.CONFIG.startingRunes,
       upgrades: {},            // { nodeId: куплено раз }
-      panel: ["fireball", null, null, null, null], // 'fireball' — переключатель жрицы
+      autoSkills: {},
+      panel: Array.from({ length: DWR.CONFIG.skillBar.baseSlots }, (_, i) => i === 0 ? "heal" : null),
       location1Done: false,
       cryptDone: false,
+      wildsDone: false,
       treasuresOpened: {},     // { id локации: открыт ли сундук за первое убийство }
       settings: { music: 0.7, sound: 0.8 }
     };
@@ -25,7 +28,24 @@ DWR.State = (function () {
   function load() {
     try {
       const raw = localStorage.getItem(KEY());
-      if (raw) data = Object.assign(fresh(), JSON.parse(raw));
+      if (raw) {
+        const saved = JSON.parse(raw);
+        data = Object.assign(fresh(), saved);
+        resizePanel();
+        if (data.started && !Object.hasOwn(saved, "runes")) {
+          // Сохраняем доступ к прежнему фаерболу и учитываем уже открытые сундуки.
+          data.upgrades.fireball = 1;
+          for (const id of Object.keys(DWR.CONFIG.locations)) {
+            if (locationCleared(id) && !treasureUnopened(id)) data.runes++;
+          }
+          if (!data.panel.includes("heal")) {
+            const shared = data.panel.indexOf("fireball");
+            const free = data.panel.indexOf(null);
+            if (shared !== -1) data.panel[shared] = "heal";
+            else if (free !== -1) data.panel[free] = "heal";
+          }
+        }
+      }
     } catch (e) { data = fresh(); }
     return data;
   }
@@ -61,17 +81,21 @@ DWR.State = (function () {
   function openTreasure(id) {
     if (!treasureAvailable(id)) return false;
     data.treasuresOpened[id] = true;
+    data.runes++;
     save();
     return true;
   }
 
   // --- Узлы дерева ---
   function nodeDef(id) { return nodes.get(id) ?? null; }
-  function nodeCount(id) { return data.upgrades[id] || 0; }
+  function nodeCount(id) {
+    return Math.min(nodeDef(id)?.max ?? 0, data.upgrades[id] ?? (id === "heal" ? 1 : 0));
+  }
   function nodePrice(id) {
     const def = nodeDef(id);
-    return Math.round(def.base * Math.pow(def.mul, nodeCount(id)));
+    return DWR.skillRankPrice(def, nodeCount(id) + 1);
   }
+  function nodeCurrency(id) { return DWR.skillRankCurrency(nodeDef(id), nodeCount(id) + 1); }
   function nodeUnlocked(id) {
     const node = nodeDef(id);
     // Ранее купленные узлы остаются доступными при перестройке связей.
@@ -79,12 +103,19 @@ DWR.State = (function () {
   }
   function nodeBuyable(id) {
     const def = nodeDef(id);
-    return def && nodeUnlocked(id) && nodeCount(id) < def.max && data.coins >= nodePrice(id);
+    return def && nodeUnlocked(id) && nodeCount(id) < def.max && data[nodeCurrency(id)] >= nodePrice(id);
   }
   function buyNode(id) {
     if (!nodeBuyable(id)) return false;
-    data.coins -= nodePrice(id);
+    const { stat, unlockSkill } = nodeDef(id).effect;
+    const alreadyUnlocked = unlockSkill && hasSkill(unlockSkill);
+    data[nodeCurrency(id)] -= nodePrice(id);
     data.upgrades[id] = nodeCount(id) + 1;
+    if (stat === "panelSlots") resizePanel();
+    if (unlockSkill && !alreadyUnlocked && hasSkill(unlockSkill) && !data.panel.includes(unlockSkill)) {
+      const slot = data.panel.indexOf(null);
+      if (slot !== -1) data.panel[slot] = unlockSkill;
+    }
     save();
     return true;
   }
@@ -96,6 +127,13 @@ DWR.State = (function () {
     }
     return false;
   }
+  function autoEnabled(id) {
+    return Boolean(DWR.CONFIG.skills[id]?.auto && (data.autoSkills[id] ?? DWR.CONFIG.skills[id].defaultAuto));
+  }
+  function setAuto(id, enabled) {
+    data.autoSkills[id] = enabled;
+    save();
+  }
 
   // --- Производные статы героев от купленных узлов ---
   function stats() {
@@ -103,19 +141,26 @@ DWR.State = (function () {
       potionLuck: DWR.CONFIG.loot.potionChanceBase
     };
     for (const { effect } of nodes.values()) if (effect.stat) s[effect.stat] ??= 0;
-    for (const [id, cnt] of Object.entries(data.upgrades)) {
+    for (const id of Object.keys(data.upgrades)) {
       const def = nodeDef(id);
       if (!def || !def.effect || !def.effect.stat) continue;
-      s[def.effect.stat] += def.effect.add * cnt;
+      s[def.effect.stat] += def.effect.add * nodeCount(id);
     }
     return s;
+  }
+
+  function resizePanel() {
+    const { baseSlots, maxSlots } = DWR.CONFIG.skillBar;
+    const length = Math.min(maxSlots, baseSlots + Math.max(0, Math.floor(stats().panelSlots || 0)));
+    const previous = Array.isArray(data.panel) ? data.panel : fresh().panel;
+    data.panel = Array.from({ length }, (_, i) => previous[i] ?? null);
   }
 
   return {
     get data() { return data; },
     load, save, reset, locationCleared, locationUnlocked, completeLocation,
     treasureUnopened, treasureAvailable, openTreasure,
-    nodeDef, nodeCount, nodePrice, nodeUnlocked, nodeBuyable, buyNode, hasSkill,
+    nodeDef, nodeCount, nodePrice, nodeCurrency, nodeUnlocked, nodeBuyable, buyNode, hasSkill, autoEnabled, setAuto,
     stats
   };
 })();

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Доска прокачки · Don't Wipe the Raid</title>
+  <link rel="icon" href="assets/out/coin.png">
+  <link rel="stylesheet" href="css/skill-designer.css">
+  <script defer src="js/skill-tree-data.js?v=skill-rank-balance-1"></script>
+  <script defer src="js/config.js?v=skill-rank-balance-1"></script>
+  <script defer src="js/skill-designer.js?v=skill-rank-balance-1"></script>
+</head>
+<body>
+  <main class="workspace">
+    <header class="page-header">
+      <div>
+        <a class="game-link" href="index.html">Don't Wipe the Raid</a>
+        <h1>Доска прокачки</h1>
+      </div>
+      <div class="toolbar">
+        <button type="button" id="import-button">Импорт JSON</button>
+        <input id="import-input" type="file" accept=".json,application/json" hidden>
+        <button type="button" id="export-json">Экспорт JSON</button>
+        <button type="button" id="export-game" class="primary">Скачать для игры</button>
+      </div>
+    </header>
+    <p class="notice" id="notice" role="status" aria-live="polite">Подготовка дерева…</p>
+    <nav class="categories" id="categories" aria-label="Разделы дерева"></nav>
+    <div class="desk">
+      <section class="panel tree-panel" aria-labelledby="tree-title">
+        <header class="panel-head">
+          <div><h2 id="tree-title"></h2><p id="tree-total" class="secondary"></p></div>
+          <button type="button" id="add-branch">Добавить ветку</button>
+        </header>
+        <div class="tree-list" id="tree-list"></div>
+      </section>
+      <section class="panel inspector" id="inspector" aria-labelledby="inspector-title"></section>
+    </div>
+    <footer class="page-footer">У активного навыка один ранг. Улучшения в дочерних узлах покупаются за монеты. Скачанный <code>skill-tree-data.js</code> заменяет файл в папке <code>prototype/js</code>.</footer>
+  </main>
+</body>
+</html>

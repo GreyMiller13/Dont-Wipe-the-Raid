@@ -4,11 +4,13 @@ window.DWR = window.DWR || {};
 
 (function () {
   let current = null;      // активный экран: 'menu' | 'location' | 'upgrade' | 'panel' | 'game' | 'results'
+  let pendingRun = null;
   let lastTs = 0;
 
   // Показ экрана: скрывает все .screen, включает нужный; 'game' — все скрыты, виден canvas.
   DWR.showScreen = function (id) {
     current = id;
+    pendingRun = null;
     document.querySelectorAll(".screen").forEach(el => el.classList.remove("active"));
     if (id !== "game") {
       const el = document.getElementById("screen-" + id);
@@ -23,14 +25,15 @@ window.DWR = window.DWR || {};
 
   // Старт забега (кнопка «В бой»); ждём готовности ассетов, реальную логику даёт run.js
   DWR.startRun = function (location = "dungeon", treasureOnly = false) {
-    if (!DWR.State.locationUnlocked(location)) return;
+    if (pendingRun || !DWR.CONFIG.locations[location]?.rooms.length || !DWR.State.locationUnlocked(location)) return;
     if (treasureOnly && !DWR.State.treasureAvailable(location)) return;
     const go = () => {
+      if (pendingRun !== go) return;
       DWR.Run.start(location, treasureOnly);
       DWR.showScreen("game");
     };
-    if (DWR.Assets && !DWR.Assets.ready) { DWR.Assets.onReady(go); return; }
-    go();
+    pendingRun = go;
+    DWR.Assets.onReady(go, location);
   };
 
   // Завершение забега — экран итогов (вызывает run.js)

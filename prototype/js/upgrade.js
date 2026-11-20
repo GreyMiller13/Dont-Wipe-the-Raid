@@ -4,18 +4,12 @@ window.DWR = window.DWR || {};
 
 DWR.Upgrade = (function () {
   const S = DWR.State;
-  const NODE_SIZE = 74, STEP_X = 226, STEP_Y = 83, GROUP_GAP = 11;
+  const NODE_SIZE = 88, STEP_X = 226, STEP_Y = 101;
   const COLORS = {
-    warrior: { color: "#f1a58b", line: "#ac6c61" },
-    priest: { color: "#dbc2ff", line: "#8e76b3" },
-    ranger: { color: "#a3d6a4", line: "#689977" },
-    raid: { color: "#efcb86", line: "#ac8857" }
-  };
-  const GROUP_ICONS = {
-    sword: "crossblades", strike: "sweep", guard: "shield", resolve: "armor",
-    light: "glow", flame: "flame", mana: "drop", alchemy: "flask",
-    shoot: "bow", volley: "spread", aim: "target", focus: "eye",
-    bounty: "pouch", contract: "trophy", pickup: "hand"
+    warrior: { color: "#f1a58b", line: "#ac6c61", pixels: ["#663a46", "#bd694c", "#ed9d68", "#fff1b9"] },
+    priest: { color: "#dbc2ff", line: "#8e76b3", pixels: ["#5a416e", "#a379c2", "#d9aef2", "#fff0fd"] },
+    ranger: { color: "#a3d6a4", line: "#689977", pixels: ["#325c4c", "#64a866", "#b4d881", "#fff5b7"] },
+    raid: { color: "#efcb86", line: "#ac8857", pixels: ["#694837", "#b87a42", "#eaba5e", "#fff1b0"] }
   };
   const SKILL_ICONS = {
     wDmg: "blade", wTempo: "swift", wStride: "boot", wStrike: "sweep", powerStrikeHaste: "hourglass",
@@ -29,12 +23,13 @@ DWR.Upgrade = (function () {
     multishotCost: "efficiency", rExtraArrow: "spread", rPrecision: "arrow", preciseShotHaste: "hourglass",
     preciseShotCost: "efficiency", preciseBoss: "skull", rFocusKill: "target", rFocusRegen: "cycle",
     raidCoins: "coin", bossCoins: "skull", chestCoins: "chest", roomCoins: "scroll", raidVictoryCoins: "trophy",
-    lootReach: "hand", autoCoins: "magnet"
+    lootReach: "hand", autoCoins: "magnet", panelSlots: "slots",
+    wCrit: "criticalBlade", pCrit: "glow", rCrit: "eye"
   };
   const ICON_PATHS = {
     squad: "M3 18v-3l3-2m12 0 3 2v3M8 20v-3l4-3 4 3v3zM14 9a2 2 0 1 1-4 0 2 2 0 1 1 4 0zM8 7a2 2 0 1 1-4 0 2 2 0 1 1 4 0zM20 7a2 2 0 1 1-4 0 2 2 0 1 1 4 0z",
     blade: "M5 19l4-4m-4-3 7 7m-5-5 9-11h5v5L10 17M4 20l-1 1",
-    crossblades: "M3 3h4l13 16m-5 1 6-5M21 3h-4L4 19m5 1-6-5M3 3v4l4 3m14-7v4l-4 3",
+    criticalBlade: "M3 21l8-8m-6 0 6 6m-3-4 7-8 5-1-1 5-8 7M6 3v6M3 6h6m11 8v6m-3-3h6",
     powerStrike: "M4 20l6-6m-4-3 7 7m-5-5 7-9 6-1-1 6-9 7m-7-9 3-3m4 0 2-2m3 16 2-2m-1 5 4-4",
     swift: "M13 2 5 13h6l-1 9 9-12h-7z",
     boot: "M9 3h8v10l4 3v4H3v-5l6-2zM4 17h16M9 8h4m-4 3h4",
@@ -57,7 +52,6 @@ DWR.Upgrade = (function () {
     potion: "M9 3h6v5l4 5q2 2 1 4l-3 4H7l-3-4q-1-2 1-4l4-5zM9 6h6m-3 7v5m-2.5-2.5h5",
     spark: "M12 3q0 7 7 9-7 0-7 7-2-7-9-7 7-2 9-9zM19 3v4m-2-2h4M4 18v3m-1-1h3",
     door: "M4 21h16m-14 0V5l12-2v18M9 14h2",
-    bow: "M4 4q15-1 15 16M4 4l15 16M8 16l11-11m-5 0h5v5",
     arrow: "M3 21 20 4m-8 1 8-1-1 8M4 14h6v6",
     fan: "M3 20 20 4m-6 0h6v6M4 15l1-11m-3 3 3-3 3 3M9 20l11-1m-3-3 3 3-3 3",
     multishot: "M3 19 20 4m-5 0h5v5M3 13l8-9M7 4h4v4M10 20l10-9m-5 0h5v5",
@@ -70,13 +64,14 @@ DWR.Upgrade = (function () {
     coin: "M16 10a6.5 6.5 0 1 1-13 0 6.5 6.5 0 1 1 13 0zM18 8a6.5 6.5 0 1 1-7 11M9.5 7v6m-2-3h4",
     chest: "M3 11q0-6 5-6h8q5 0 5 6v8H3zM3 11h18m-11 0v4h4v-4M7 6v5m10-5v5",
     trophy: "M7 3h10v8l-2 4H9l-2-4zm0 3H3v4l4 3m10-7h4v4l-4 3m-5 2v5m-5 1h10",
-    pouch: "M8 8 6 4h12l-2 4M8 8c-3 3-5 6-5 9q0 4 9 4t9-4c0-3-2-6-5-9zM11 13h2l1 1-1 2h-2l-1-1z",
+    slots: "M3 5h8v6H3zm0 9h8v6H3zM14 5h7v6h-7zm3.5 9v6m-3-3h6",
     hand: "M5 21v-5l-3-4 2-2 4 3V5h3v6-8h3v8-6h3v7-4h3v9l-4 4z",
     magnet: "M4 4h5v10a3 3 0 0 0 6 0V4h5v10a8 8 0 0 1-16 0zM4 8h5m6 0h5"
   };
   const glyphs = new Map();
-  const camera = { x: 0, y: 0, scale: 1, initialized: false };
+  const camera = { x: 0, y: 0, scale: 1, overview: true };
   let selectedId = null;
+  let world;
 
   function escapeHtml(value) {
     return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -95,17 +90,15 @@ DWR.Upgrade = (function () {
       const branch = vertex("branch", tree.name, owner);
       root.children.push(branch);
       for (const group of tree.branches) {
-        const heading = vertex("group", group.name, owner);
-        heading.icon = GROUP_ICONS[group.id];
-        branch.children.push(heading);
-        for (const def of group.nodes) {
+        const visible = group.nodes.filter(def => S.nodeUnlocked(def.id));
+        for (const def of visible) {
           const skill = vertex("skill", def.name, owner);
           skill.id = def.id;
           skill.group = group.name;
           skills.set(def.id, skill);
         }
-        for (const def of group.nodes) {
-          const parent = skills.get(def.parent) || heading;
+        for (const def of visible) {
+          const parent = skills.get(def.parent) || branch;
           parent.children.push(skills.get(def.id));
         }
       }
@@ -123,7 +116,6 @@ DWR.Upgrade = (function () {
         node.y = row;
         row += STEP_Y;
       }
-      if (node.kind === "group") row += GROUP_GAP;
     }
 
     const middleGap = 58;
@@ -153,36 +145,70 @@ DWR.Upgrade = (function () {
     return { root, branches, vertices, skills, width, height };
   }
 
-  const world = layoutWorld();
+  function drawPixelIcon(name, palette) {
+    const size = 20;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.save();
+    ctx.scale(size / 24, size / 24);
+    ctx.lineWidth = 2.1;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.stroke(new Path2D(ICON_PATHS[name]));
+    ctx.restore();
+    const rgba = ctx.getImageData(0, 0, size, size).data;
+    const pixels = new Uint8Array(size * size);
+    for (let i = 0; i < pixels.length; i++) pixels[i] = rgba[i * 4 + 3] >= 115 ? 1 : 0;
 
-  function nodeIcon(name) {
-    if (!glyphs.has(name)) {
-      const canvas = document.createElement("canvas");
-      canvas.width = canvas.height = 48;
-      const ctx = canvas.getContext("2d");
-      ctx.scale(2, 2);
-      ctx.strokeStyle = "white";
-      ctx.lineWidth = 1.65;
-      ctx.lineJoin = "round";
-      ctx.lineCap = "round";
-      ctx.stroke(new Path2D(ICON_PATHS[name]));
-      glyphs.set(name, canvas.toDataURL());
+    // Отмечаем прозрачную область снаружи, чтобы замкнутые контуры получили заливку.
+    const outside = [0];
+    pixels[0] = 2;
+    for (let i = 0; i < outside.length; i++) {
+      const at = outside[i], x = at % size;
+      for (const next of [x > 0 ? at - 1 : -1, x < size - 1 ? at + 1 : -1, at - size, at + size]) {
+        if (pixels[next] !== 0) continue;
+        pixels[next] = 2;
+        outside.push(next);
+      }
     }
-    return `<span class="up-node-icon up-glyph" style="--glyph:url(${glyphs.get(name)})" aria-hidden="true"></span>`;
+
+    ctx.clearRect(0, 0, size, size);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const i = y * size + x;
+        const left = x > 0 && pixels[i - 1] === 1, top = pixels[i - size] === 1;
+        const right = x < size - 1 && pixels[i + 1] === 1, bottom = pixels[i + size] === 1;
+        const pixel = pixels[i];
+        if (pixel === 2 && !left && !top && !right && !bottom) continue;
+        ctx.fillStyle = palette[pixel === 2 ? 0 : pixel === 0 ? 1 : !top && (!left || bottom) ? 3 : 2];
+        ctx.fillRect(x, y, 1, 1);
+      }
+    }
+    return canvas.toDataURL();
+  }
+
+  function nodeIcon(name, owner) {
+    const key = owner + ":" + name;
+    if (!glyphs.has(key)) glyphs.set(key, drawPixelIcon(name, COLORS[owner].pixels));
+    return `<img class="up-node-icon up-pixel-glyph" src="${glyphs.get(key)}" alt="" draggable="false">`;
+  }
+
+  function skillIcon(node, owner) {
+    return nodeIcon(node.effect.unlockSkill || SKILL_ICONS[node.id] || SKILL_ICONS[node.effect.stat] || "spark", owner);
   }
 
   function drawLinks(canvas) {
     const ctx = canvas.getContext("2d");
     ctx.scale(2, 2);
+    ctx.globalAlpha = 0.95;
     for (const parent of world.vertices) for (const child of parent.children) {
       const fromX = parent.x;
       const fromY = parent.y + (parent === world.root ? Math.sign(child.y - parent.y) * 13 : 0);
       const toX = child.x;
       const middle = (fromX + toX) / 2;
-      const unlocked = child.kind !== "skill" || S.nodeUnlocked(child.id);
       ctx.strokeStyle = COLORS[child.owner].line;
-      ctx.globalAlpha = unlocked ? 0.95 : 0.66;
-      ctx.lineWidth = child.kind === "branch" ? 5 : unlocked ? 3.3 : 2.5;
+      ctx.lineWidth = child.kind === "branch" ? 5 : 3.3;
       ctx.beginPath();
       ctx.moveTo(fromX, fromY);
       ctx.bezierCurveTo(middle, fromY, middle, child.y, toX, child.y);
@@ -196,22 +222,22 @@ DWR.Upgrade = (function () {
       const name = escapeHtml(vertex.name);
       const position = `left:${x - NODE_SIZE / 2}px;top:${y - NODE_SIZE / 2}px`;
       if (kind === "root") {
-        return `<div class="up-vertex up-root" style="${position}">${nodeIcon("squad")}<span class="up-node-label">${name}</span></div>`;
+        return `<div class="up-vertex up-root" style="${position}">${nodeIcon("squad", "raid")}<span class="up-node-label">${name}</span></div>`;
       }
       const theme = COLORS[owner];
       const style = `${position};--branch:${theme.color};--branch-line:${theme.line}`;
-      if (kind === "group") return `<div class="up-vertex up-group" style="${style}" title="${name}" role="img" aria-label="${name}">${nodeIcon(vertex.icon)}</div>`;
       if (kind === "branch") {
         const image = owner === "raid" ? '<img class="up-node-icon" src="assets/out/coin.png" alt="" draggable="false">'
           : `<span class="scr-portrait"><img src="assets/out/${owner}.png" alt="" draggable="false"></span>`;
         return `<div class="up-vertex up-branch" style="${style}">${image}<h3 class="up-node-label">${name}</h3></div>`;
       }
-      const node = S.nodeDef(id), count = S.nodeCount(id), locked = !S.nodeUnlocked(id);
-      const label = locked ? "Закрыто" : count >= node.max && node.max === 1 ? "Изучено" : count + " / " + node.max;
-      const state = locked ? "locked" : count >= node.max ? "full" : count > 0 ? "learned"
+      const node = S.nodeDef(id), count = S.nodeCount(id);
+      const label = count >= node.max && node.max === 1 ? "Изучено" : count + " / " + node.max;
+      const state = count >= node.max ? "full" : count > 0 ? "learned"
         : S.nodeBuyable(id) ? "buyable" : "open";
-      const icon = nodeIcon(node.effect.unlockSkill || SKILL_ICONS[id]);
-      return `<button class="up-vertex up-socket up-socket-${state}" data-node="${id}" style="${style}"
+      const icon = skillIcon(node, owner);
+      const active = DWR.nodeHeroSkill(node) ? " up-socket-active" : "";
+      return `<button class="up-vertex up-socket up-socket-${state}${active}" data-node="${id}" style="${style}"
           title="${name} · ${label}" aria-label="${name} · ${label}" aria-pressed="${id === selectedId}">
           ${icon}${count > 0 ? `<small aria-hidden="true">${count}/${node.max}</small>` : ""}</button>`;
     }).join("");
@@ -224,19 +250,17 @@ DWR.Upgrade = (function () {
     const theme = COLORS[owner];
     const count = S.nodeCount(node.id);
     let action;
-    if (!S.nodeUnlocked(node.id)) {
-      const parent = S.nodeDef(node.parent);
-      action = `<div class="up-requirement">Нужно изучить «${escapeHtml(parent.name)}» до уровня ${node.requiresLevel}.</div>`;
-    } else if (count >= node.max) {
+    if (count >= node.max) {
       action = '<div class="up-requirement up-complete">✓ Изучено полностью</div>';
     } else {
-      const price = S.nodePrice(node.id), buyable = S.nodeBuyable(node.id);
-      action = `<button class="btn btn-gold up-buy"${buyable ? "" : " disabled"}>${buyable ? "Купить" : "Не хватает монет"}
-        <span><img src="assets/out/coin.png" alt="">${price}</span></button>`;
+      const price = S.nodePrice(node.id), buyable = S.nodeBuyable(node.id), rune = S.nodeCurrency(node.id) === "runes";
+      const label = rune ? (buyable ? "Открыть" : "Нужна руна") : (buyable ? "Купить" : "Не хватает монет");
+      action = `<button class="btn btn-gold up-buy"${buyable ? "" : " disabled"}>${label}
+        <span><img src="assets/out/${rune ? "rune" : "coin"}.png" alt="${rune ? "Руны навыков" : "Монеты"}">${price.toLocaleString("ru-RU")}</span></button>`;
     }
     return `<section class="up-detail" style="--branch:${theme.color};--branch-line:${theme.line}">
       <div class="up-detail-name"><p class="up-detail-path">${escapeHtml(world.branches[owner].name)} · ${escapeHtml(group)}</p>
-        <h3>${nodeIcon(node.effect.unlockSkill || SKILL_ICONS[node.id])}${escapeHtml(node.name)}</h3></div>
+        <h3>${skillIcon(node, owner)}${escapeHtml(node.name)}</h3></div>
       <p class="up-detail-description">${escapeHtml(node.desc)}</p>
       <div class="up-detail-rank">
         <label for="up-rank">Уровень <strong>${count} / ${node.max}</strong></label>
@@ -261,11 +285,13 @@ DWR.Upgrade = (function () {
       camera.scale = fitScale();
       camera.x = (map.clientWidth - world.width * camera.scale) / 2;
       camera.y = (map.clientHeight - world.height * camera.scale) / 2;
-      camera.initialized = true;
+      camera.overview = true;
       paint();
     }
     function zoomAt(factor, x, y) {
       const next = clamp(camera.scale * factor, fitScale(), 1.85);
+      if (next === camera.scale) return;
+      camera.overview = false;
       camera.x = x - (x - camera.x) * next / camera.scale;
       camera.y = y - (y - camera.y) * next / camera.scale;
       camera.scale = next;
@@ -296,6 +322,7 @@ DWR.Upgrade = (function () {
       if (!press.moving) {
         if (Math.hypot(dx, dy) < 5) return;
         press.moving = true;
+        camera.overview = false;
         ignoreClick = true;
         map.setPointerCapture(e.pointerId);
         map.classList.add("up-map-panning");
@@ -324,6 +351,7 @@ DWR.Upgrade = (function () {
       if (offsets[e.key]) {
         e.preventDefault();
         const [dx, dy] = offsets[e.key];
+        camera.overview = false;
         camera.x += dx;
         camera.y += dy;
         paint();
@@ -340,11 +368,16 @@ DWR.Upgrade = (function () {
         node.right > area.right ? area.right - node.right - 12 : 0;
       const dy = node.top < area.top ? area.top - node.top + 12 :
         node.bottom > area.bottom ? area.bottom - node.bottom - 12 : 0;
-      if (dx || dy) { camera.x += dx / scale; camera.y += dy / scale; paint(); }
+      if (dx || dy) {
+        camera.overview = false;
+        camera.x += dx / scale;
+        camera.y += dy / scale;
+        paint();
+      }
     });
     screen.querySelector(".up-fit").addEventListener("click", fitWorld);
-    if (camera.initialized) paint();
-    else fitWorld();
+    if (camera.overview) fitWorld();
+    else paint();
   }
 
   function bindHelp(page) {
@@ -363,6 +396,18 @@ DWR.Upgrade = (function () {
   }
 
   function redraw() {
+    const previous = world?.skills.get(selectedId) ?? world?.root;
+    world = layoutWorld();
+    if (selectedId && !world.skills.has(selectedId)) {
+      selectedId = null;
+      camera.overview = true;
+    }
+    if (previous && !camera.overview) {
+      // При открытии ветви выбранный узел остаётся на том же месте экрана.
+      const anchor = world.skills.get(selectedId) ?? world.root;
+      camera.x += (previous.x - anchor.x) * camera.scale;
+      camera.y += (previous.y - anchor.y) * camera.scale;
+    }
     const el = document.getElementById("screen-upgrade");
     el.innerHTML = `
       <main class="up-page up-tree-page">
@@ -381,6 +426,7 @@ DWR.Upgrade = (function () {
               <button class="btn up-fit">Вся карта</button>
             </div>
             <span class="up-balance"><img src="assets/out/coin.png" alt=""> <b>${S.data.coins}</b> монет</span>
+            <span class="up-balance up-balance-runes" title="Руны открывают активные навыки. Награда за первую победу в локации"><img src="assets/out/rune.png" alt="">Руны <b>${S.data.runes}</b></span>
             <button class="btn up-back">Назад</button>
           </div>
         </header>

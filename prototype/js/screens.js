@@ -106,6 +106,10 @@ DWR.Screens = (function () {
 
   function bindDialog(trigger, dialog) {
     trigger.addEventListener("click", () => dialog.showModal());
+    bindDialogBackdrop(dialog);
+  }
+
+  function bindDialogBackdrop(dialog) {
     let pressedBackdrop = false;
     dialog.addEventListener("pointerdown", e => { pressedBackdrop = e.target === dialog; });
     dialog.addEventListener("click", e => {
@@ -135,21 +139,44 @@ DWR.Screens = (function () {
     DWR.showScreen("location");
   }
 
+  function demoDialog() {
+    return `
+      <dialog class="scr-dialog scr-demo-dialog" id="scr-demo-message" aria-labelledby="scr-demo-title" aria-describedby="scr-demo-description">
+        <form method="dialog">
+          <header class="scr-dialog-header">
+            <h2 class="scr-h2" id="scr-demo-title">Спасибо, что сыграли в демо!</h2>
+            <button class="btn scr-dialog-close" aria-label="Закрыть благодарность"></button>
+          </header>
+          <p id="scr-demo-description">Следующая локация скоро будет готова.</p>
+        </form>
+      </dialog>`;
+  }
+
+  function showDemoMessage(el) {
+    const dialog = el.querySelector("#scr-demo-message");
+    if (!dialog) return;
+    el.querySelector(".scr-carousel-prev").focus();
+    dialog.showModal();
+  }
+
   function renderLocation(direction = 0) {
     const el = document.getElementById("screen-location");
     if (!el) return;
     const locations = DWR.CONFIG.locations;
     const ids = Object.keys(locations);
     const unlocked = ids.filter(S.locationUnlocked);
+    const playable = unlocked.filter(id => locations[id].rooms.length);
     const id = unlocked.includes(selectedLocation) ? selectedLocation
-      : unlocked.find(id => !S.locationCleared(id)) ?? unlocked.at(-1);
+      : playable.find(id => !S.locationCleared(id)) ?? playable.at(-1);
     selectedLocation = id;
-    const index = ids.indexOf(id);
     const location = locations[id];
+    const index = ids.indexOf(id);
     const previous = ids[index - 1], next = ids[index + 1];
     const left = S.locationUnlocked(previous), right = S.locationUnlocked(next);
     const treasure = S.treasureAvailable(id);
     const room = DWR.CONFIG.rooms[location.rooms[0]];
+    const isPreview = !!location.previewArt;
+    const art = location.previewArt ?? DWR.Assets.assetUrl("room" + (room.art ?? room.id) + ".jpg");
     const cleared = S.locationCleared(id);
     const potions = S.hasSkill("potion") && S.data.panel.includes("potion") ? S.stats().potionStock : 0;
     const arrow = (side, label, enabled) => `
@@ -162,21 +189,22 @@ DWR.Screens = (function () {
           <h2 class="scr-h2">Подготовка к рейду</h2>
           <div class="scr-status-info">
             <span><img src="assets/out/coin.png" alt=""> <b>${S.data.coins}</b> монет</span>
+            <span class="scr-camp-runes" title="Руны навыков"><img src="assets/out/rune.png" alt="">Руны <b>${S.data.runes}</b></span>
             ${potions > 0 ? `<span class="scr-camp-potions"><img src="${DWR.Assets.iconUrl("potion")}" alt="">Зелья <b>${potions}</b></span>` : ""}
             <button id="scr-btn-menu" class="btn">Меню</button>
           </div>
         </header>
         <div class="scr-raid-grid">
           <section class="scr-carousel" aria-label="Выбор локации">
-            <div class="scr-card-location">
-              <img class="scr-carousel-art${direction ? " scr-art-enter" : ""}" src="${DWR.Assets.assetUrl("room" + (room.art ?? room.id) + ".jpg")}" alt="">
+            <div class="scr-card-location${isPreview ? " scr-card-preview" : ""}">
+              <img class="scr-carousel-art${direction ? " scr-art-enter" : ""}" src="${art}" alt="${isPreview ? "Герои на привале у костра" : ""}">
               <div class="scr-carousel-info">
                 <h3>${location.name}</h3>
                 <p class="scr-location-meta${cleared ? " scr-location-cleared" : ""}">${cleared ? "Пройдена" : "Не пройдена"}</p>
-                <div class="scr-location-buttons">
+                ${isPreview ? "" : `<div class="scr-location-buttons">
                   <button class="btn btn-gold" id="scr-btn-fight">В бой</button>
                   ${treasure ? '<button class="btn" id="scr-btn-treasure">Сокровищница</button>' : ""}
-                </div>
+                </div>`}
               </div>
               ${arrow("prev", "Предыдущая локация", left)}
               ${arrow("next", "Следующая локация", right)}
@@ -192,14 +220,16 @@ DWR.Screens = (function () {
                 </div>`).join("")}
             </div>
             <div class="scr-party-actions">
-              <button id="scr-btn-upgrade" class="btn"><img src="${DWR.Assets.iconUrl("powerStrike")}" alt="">Прокачка</button>
-              <button id="scr-btn-panel" class="btn"><img src="${DWR.Assets.iconUrl("multishot")}" alt="">Панель навыков</button>
+              ${menuButton("upgrade", "Прокачка")}
+              ${menuButton("panel", "Панель навыков")}
             </div>
           </section>
         </div>
-      </main>`;
+      </main>
+      ${isPreview ? demoDialog() : ""}`;
 
     el.querySelector("#scr-btn-menu").addEventListener("click", () => DWR.showScreen("menu"));
+    if (isPreview) bindDialogBackdrop(el.querySelector("#scr-demo-message"));
     function select(step) {
       const target = ids[index + step];
       if (!S.locationUnlocked(target)) return;
@@ -207,6 +237,7 @@ DWR.Screens = (function () {
       renderLocation(step);
       const button = el.querySelector(step > 0 ? ".scr-carousel-next" : ".scr-carousel-prev");
       (button.disabled ? el.querySelector(step > 0 ? ".scr-carousel-prev" : ".scr-carousel-next") : button).focus();
+      showDemoMessage(el);
     }
     el.querySelector(".scr-carousel-prev").addEventListener("click", () => select(-1));
     el.querySelector(".scr-carousel-next").addEventListener("click", () => select(1));
@@ -215,10 +246,11 @@ DWR.Screens = (function () {
       e.preventDefault();
       select(e.key === "ArrowLeft" ? -1 : 1);
     });
-    el.querySelector("#scr-btn-fight").addEventListener("click", () => DWR.startRun(id));
+    el.querySelector("#scr-btn-fight")?.addEventListener("click", () => DWR.startRun(id));
     el.querySelector("#scr-btn-treasure")?.addEventListener("click", () => DWR.startRun(id, true));
     el.querySelector("#scr-btn-upgrade").addEventListener("click", () => DWR.showScreen("upgrade"));
     el.querySelector("#scr-btn-panel").addEventListener("click", () => DWR.showScreen("panel"));
+    DWR.Assets.preloadLocation(id);
   }
 
   // ---------- Экран: итоги забега ----------
@@ -228,7 +260,10 @@ DWR.Screens = (function () {
     const titles = { win: "Победа!", wipe: "Отряд пал…", retreat: "Отступление" };
     const reason = result?.reason || "retreat";
     const title = result?.treasureOnly && reason === "win" ? "Награда получена" : titles[result?.reason] || "Забег завершён";
-    const { coins = 0, roomsCleared = 0, roomsTotal = 0, roomId = 1, location = "dungeon", party = [] } = result || {};
+    const { coins = 0, runes = 0, roomsCleared = 0, roomsTotal = 0, roomId = 1, location = "dungeon", party = [] } = result || {};
+    const previewId = "demoPreview";
+    const preview = DWR.CONFIG.locations[previewId];
+    const showPreview = reason === "win" && location === preview.unlockAfter && S.locationUnlocked(previewId);
     const roster = party.map(({ id, hp, maxHp, alive }) => `
       <div class="scr-result-hero${alive ? "" : " scr-result-fallen"}">
         <div class="scr-portrait"><img src="assets/out/${id}.png" alt=""></div>
@@ -250,13 +285,19 @@ DWR.Screens = (function () {
             <progress id="raid-progress" value="${roomsCleared}" max="${roomsTotal}"></progress>
           </div>` : ""}
           <div class="scr-results-rewards">
-            <img src="assets/out/coin.png" alt=""><span><b>${coins}</b>Монеты</span>
+            <div><img src="assets/out/coin.png" alt=""><span><b>${coins}</b>Монеты</span></div>
+            <div class="scr-result-runes"><img src="assets/out/rune.png" alt=""><span><b>${runes}</b>Руны</span></div>
           </div>
           <div class="scr-result-roster" aria-label="Состояние отряда">${roster}</div>
-          <button id="scr-btn-to-location" class="btn btn-gold">К подготовке</button>
+          <button id="scr-btn-to-location" class="btn btn-gold">${showPreview ? "К следующей локации" : "К подготовке"}</button>
         </footer>
       </main>`;
-    el.querySelector("#scr-btn-to-location").addEventListener("click", returnToCamp);
+    el.querySelector("#scr-btn-to-location").addEventListener("click", () => {
+      if (!showPreview) return returnToCamp();
+      selectedLocation = previewId;
+      DWR.showScreen("location");
+      showDemoMessage(document.getElementById("screen-location"));
+    });
   }
 
   // ---------- Публичный API ----------

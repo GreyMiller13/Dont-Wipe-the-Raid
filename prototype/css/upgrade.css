@@ -3,6 +3,7 @@
 .up-header, .up-header-right { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .up-balance { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 15px; }
 .up-balance b { color: var(--gold); }
+.up-balance-runes b { color: #ddd3ff; }
 .up-balance img, .up-buy img { width: 19px; image-rendering: pixelated; }
 
 /* Карта дерева навыков */
@@ -97,29 +98,40 @@
   border-color: var(--branch);
   background: radial-gradient(circle at 50% 36%, color-mix(in srgb, var(--branch-line) 32%, #262237), #1c1828 82%);
 }
-.up-branch .scr-portrait { width: 53px; height: 53px; border-radius: 50%; background: transparent; }
-.up-branch .scr-portrait img { width: 171px; left: -58px; top: -43px; }
-.up-group {
-  background: radial-gradient(circle at 50% 36%, color-mix(in srgb, var(--branch-line) 44%, #2a2336), #242030 87%);
-}
+.up-branch .scr-portrait { width: 63px; height: 63px; border-radius: 50%; background: transparent; }
+.up-branch .scr-portrait img { width: 203px; left: -69px; top: -51px; }
 .up-socket {
   padding: 0;
   background: radial-gradient(circle at 50% 36%, #353142, #211d2b 90%);
   cursor: pointer;
 }
-.up-node-icon { display: inline-block; width: 39px; height: 39px; object-fit: contain; image-rendering: pixelated; }
-.up-glyph { background-color: currentColor; mask: var(--glyph) center / contain no-repeat; }
-.up-socket small { position: absolute; bottom: 7px; color: inherit; font: 700 12px/1 "Segoe UI", sans-serif; }
-.up-socket:has(small) .up-node-icon { transform: translateY(-5px); }
-.up-detail .up-node-icon { width: 22px; height: 22px; margin-right: 7px; color: var(--branch); vertical-align: middle; }
+.up-node-icon { display: inline-block; width: 60px; height: 60px; object-fit: contain; image-rendering: pixelated; }
+.up-socket small { position: absolute; bottom: 6px; color: inherit; font: 700 12px/1 "Segoe UI", sans-serif; }
+.up-socket:has(small) .up-node-icon { transform: translateY(-6px); }
+.up-detail .up-node-icon { width: 28px; height: 28px; margin-right: 7px; vertical-align: middle; }
 .up-socket-learned, .up-socket-full {
   border-color: var(--branch);
   background: radial-gradient(circle at 50% 37%, color-mix(in srgb, var(--branch-line) 56%, #312733), #302738 88%);
 }
 .up-socket-buyable { border-color: color-mix(in srgb, var(--branch) 84%, #29242e); }
-.up-socket-locked { background: radial-gradient(circle at 50% 35%, #292a37, #1b1a25 88%); border-color: #6b6377; color: #aaa9b7; }
+.up-socket-open .up-pixel-glyph, .up-socket-buyable .up-pixel-glyph { filter: grayscale(.55) brightness(.8); }
 .up-socket:hover, .up-socket:focus-visible, .up-socket[aria-pressed="true"] { color: var(--branch); border-color: var(--branch); }
-.up-socket[aria-pressed="true"] { box-shadow: 0 0 0 3px #17131f, 0 0 0 5px var(--branch), 0 0 20px #f7c26450; }
+.up-socket[aria-pressed="true"] { box-shadow: 0 0 0 3px #17131f, 0 0 0 5px var(--branch); }
+.up-socket-active, .up-socket-active:is(:hover, :focus-visible, [aria-pressed="true"]) { border-color: #e7b968; }
+.up-socket-active[aria-pressed="true"] { box-shadow: 0 0 0 3px #17131f, 0 0 0 5px #e7b968, 0 0 20px #f7c26450; }
+.up-socket-active::before {
+  position: absolute;
+  inset: 2px;
+  border: 2px dashed #ffdf9a;
+  border-radius: 50%;
+  pointer-events: none;
+  content: "";
+  animation: up-active-ring 18s linear infinite;
+}
+@keyframes up-active-ring { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .up-socket-active::before { animation: none; }
+}
 .up-details { min-height: 58px; }
 .up-detail-empty { margin: 0; padding: 15px 3px; color: var(--muted); font-size: 14px; text-align: center; }
 .up-detail {
@@ -168,7 +180,7 @@
 .pe-section-head h3 { margin: 0; font: 400 25px var(--display); }
 .pe-section-head h3 small { margin-left: 8px; color: var(--gold); font: 600 13px "Segoe UI", sans-serif; }
 .pe-clear { min-height: 32px; font-size: 13px; }
-.pe-slots { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.pe-slots { display: grid; grid-template-columns: repeat(var(--slot-count), minmax(0, 1fr)); gap: 8px; }
 .pe-slot {
   position: relative;
   min-height: 94px;

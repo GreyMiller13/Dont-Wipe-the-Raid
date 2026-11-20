@@ -1,41 +1,44 @@
 // DWR :: panel.js — панель навыков на canvas (низ экрана боя).
-// Слоты на забег: копия State.data.panel с доступными расходниками и режимом жрицы.
+// Слоты на забег: копия State.data.panel с доступными расходниками.
 // Панель использует слоты из состояния забега, редактор использует те же иконки.
 "use strict";
 window.DWR = window.DWR || {};
 
 DWR.Panel = (function () {
-  const SLOT = 92, GAP = 14, N = 5;
-  const W = () => N * SLOT + (N - 1) * GAP;
-  const X0 = () => (DWR.CONFIG.canvas.w - W()) / 2;
-  const Y0 = () => 585;
+  const SLOT = 92, GAP = 11, SLOT_H = 77;
+  const Y0 = () => 608;
 
-  const RES_COLOR = { rage: "#eb9478", focus: "#91cd94" };
-  const RES_NAME = { rage: "ярость", focus: "фокус" };
-  const LABEL = { powerStrike: "Удар", block: "Блок", multishot: "Веер", preciseShot: "Меткий", potion: "Зелье" };
+  const RES_COLOR = { rage: "#eb9478", focus: "#91cd94", mana: "#a6b8ff" };
+  const RES_NAME = { rage: "ярость", focus: "фокус", mana: "мана" };
+  const LABEL = { powerStrike: "Удар", block: "Блок", multishot: "Мультивыстрел",
+    preciseShot: "Меткий", heal: "Лечение", fireball: "Фаербол", potion: "Зелье" };
 
-  function slotRect(i) { return { x: X0() + i * (SLOT + GAP), y: Y0(), w: SLOT, h: SLOT }; }
+  function slotRect(run, i) {
+    const width = run.tempPanel.length * (SLOT + GAP) - GAP;
+    const left = (DWR.CONFIG.canvas.w - width) / 2;
+    return { x: left + i * (SLOT + GAP), y: Y0(), w: SLOT, h: SLOT_H };
+  }
 
   function slotAt(run, x, y) {
     for (let i = 0; i < run.tempPanel.length; i++) {
-      const r = slotRect(i);
+      const r = slotRect(run, i);
       if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return i;
     }
     return -1;
   }
 
-  // Если места нет, временный слот справа сохраняет выбранную панель игрока.
   function equipRunSkill(run, id) {
     const p = run.tempPanel;
-    if (p.includes(id)) return;
+    if (p.includes(id)) return true;
     const i = p.indexOf(null);
-    p[i < 0 ? p.length : i] = id;
+    if (i === -1) return false;
+    p[i] = id;
+    return true;
   }
 
-  // Доступен ли слот для активации (жив владелец, хватает ресурса)
+  // Доступен ли слот для активации с учётом ресурса и состояния владельца.
   function slotUsable(run, id) {
     if (id === "potion") return run.sim.potionsLeft > 0;
-    if (id === "fireball") return run.sim.heroes.priest.alive;
     return DWR.Sim.skillStatus(run.sim, id).ready;
   }
 
@@ -52,49 +55,13 @@ DWR.Panel = (function () {
     ctx.restore();
   }
 
-  function drawPriestSpell(ctx, sim, id, x, y) {
-    const state = DWR.Sim.priestSpellStatus(sim, id);
-    const size = 29;
-    const left = x - size / 2;
-    const cooldown = state.left > 0;
-    const progress = Math.min(1, state.left / state.duration);
-    ctx.save();
-    ctx.beginPath(); ctx.roundRect(left, y, size, size, 4);
-    ctx.fillStyle = "#15151e"; ctx.fill();
-    ctx.strokeStyle = state.ready ? "#a9dfc2" : "#555165"; ctx.stroke();
-    ctx.clip();
-    ctx.globalAlpha = state.enabled ? 1 : 0.40;
-    drawIcon(ctx, id, left + 3, y + 3, size - 6);
-    ctx.globalAlpha = 1;
-    if (cooldown) {
-      ctx.fillStyle = "rgba(12,9,20," + (0.2 + progress * 0.65) + ")";
-      ctx.fillRect(left, y, size, size);
-      ctx.fillStyle = state.enabled ? "#ffd092" : "#938a9f";
-      ctx.fillRect(left, y + size - 2, size * (1 - progress), 2);
-    }
-    ctx.restore();
-    let label = "—", color = "#a39cac";
-    if (cooldown) {
-      label = cooldownLabel(state.left);
-      if (state.enabled) color = "#ffd092";
-    } else if (state.enabled) {
-      label = state.ready ? "Готово" : state.hasMana ? "Резерв" : "Нет маны";
-      color = state.ready ? "#a9dfc2" : "#ffb4a7";
-    }
-    ctx.fillStyle = color; ctx.font = "600 10px Segoe UI";
-    ctx.fillText(label, x, y + 43);
-  }
-
-  function drawPriestMode(ctx, sim, x, y, mode) {
-    const alive = sim.heroes.priest.alive;
-    ctx.font = "600 13px Segoe UI"; ctx.fillStyle = alive ? mode.color : "#a39cac";
-    ctx.fillText(alive ? mode.name : "Вне боя", x, y + 18);
-    drawPriestSpell(ctx, sim, "heal", x - 21, y + 24);
-    drawPriestSpell(ctx, sim, "fireball", x + 21, y + 24);
-    if (alive) {
-      ctx.fillStyle = "#b0aaba"; ctx.font = "10px Segoe UI";
-      ctx.fillText("ЛКМ: сменить", x, y + 83);
-    }
+  function actionHint(skill, auto) {
+    if (!skill) return "Нажмите или перетащите навык";
+    if (skill.type === "auto") return "ЛКМ включает или отключает авто";
+    if (auto && skill.manualWhileAuto === false) return "ЛКМ отключает авто · Удар по ближайшему врагу";
+    const verb = skill.type === "instant" ? "ЛКМ применяет навык"
+      : "Перетащите на " + (["ally", "potion"].includes(skill.type) ? "героя" : "врага");
+    return skill.auto ? "ЛКМ переключает авто · " + verb : verb;
   }
 
   function draw(ctx, run) {
@@ -103,25 +70,21 @@ DWR.Panel = (function () {
     ctx.strokeStyle = "#353542"; ctx.lineWidth = 1; ctx.stroke();
 
     const hoveredSlot = DWR.Input ? slotAt(run, DWR.Input.x, DWR.Input.y) : -1;
-    const showPriestCosts = run.tempPanel[hoveredSlot] === "fireball";
+    const hoveredSkill = run.tempPanel[hoveredSlot];
     ctx.textAlign = "left"; ctx.font = "600 16px Segoe UI"; ctx.fillStyle = "#f5eee5";
-    ctx.fillText("Панель навыков", 55, 619);
+    ctx.fillText("Панель навыков", 55, 593);
     ctx.font = "13px Segoe UI"; ctx.fillStyle = "#b0aaba";
-    if (showPriestCosts) {
-      const heal = DWR.Sim.priestSpellStatus(run.sim, "heal");
-      const fireball = DWR.Sim.priestSpellStatus(run.sim, "fireball");
-      ctx.fillText("Лечение: " + heal.cost + " маны · Фаербол: " + fireball.cost + " маны", 55, 641);
-    } else ctx.fillText("Нажмите или перетащите навык", 55, 641);
+    ctx.fillText(actionHint(DWR.CONFIG.skills[hoveredSkill], run.sim.autoSkills.has(hoveredSkill)), 218, 593);
 
     for (let i = 0; i < run.tempPanel.length; i++) {
-      const r = slotRect(i), id = run.tempPanel[i];
+      const r = slotRect(run, i), id = run.tempPanel[i];
       const enabled = id && slotUsable(run, id);
-      const mode = id === "fireball" ? DWR.CONFIG.priestModes[run.sim.priestMode] : null;
+      const auto = run.sim.autoSkills.has(id);
       const hovering = id && hoveredSlot === i;
       ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 8);
-      ctx.fillStyle = mode && enabled ? "#272739" : id ? "#22232f" : "#15161e";
+      ctx.fillStyle = auto ? "#252d32" : id ? "#22232f" : "#15161e";
       ctx.fill();
-      ctx.strokeStyle = hovering ? "#ffd092" : mode && enabled ? mode.color : id ? "#454451" : "#393a47";
+      ctx.strokeStyle = hovering ? "#ffd092" : auto ? "#90bd9d" : id ? "#454451" : "#393a47";
       if (!id) ctx.setLineDash([4, 4]);
       ctx.stroke();
       ctx.setLineDash([]);
@@ -129,34 +92,35 @@ DWR.Panel = (function () {
       const cx = r.x + r.w / 2;
       if (!id) {
         ctx.fillStyle = "#7f7b8c"; ctx.font = "21px Segoe UI";
-        ctx.fillText("—", cx, r.y + 53);
+        ctx.fillText("—", cx, r.y + 44);
         continue;
       }
-      if (mode) {
-        drawPriestMode(ctx, run.sim, cx, r.y, mode);
-        continue;
-      }
-
       const skill = DWR.CONFIG.skills[id];
       const timing = id === "potion" ? null : DWR.Sim.skillStatus(run.sim, id);
       const color = id === "potion" ? "#ff938a" : RES_COLOR[skill.res];
       ctx.globalAlpha = enabled ? 1 : 0.52;
-      drawIcon(ctx, id, cx - 20, r.y + 8, 40);
+      drawIcon(ctx, id, cx - 17, r.y + 5, 34);
       ctx.globalAlpha = 1;
-      if (timing?.left > 0) {
-        const readyPart = 1 - timing.left / timing.duration;
+      if (timing?.left > 0 && (skill.type !== "auto" || auto)) {
+        const readyPart = Math.max(0, 1 - timing.left / timing.duration);
         ctx.fillStyle = "rgba(12,9,20," + (1 - readyPart) * 0.65 + ")";
-        ctx.fillRect(cx - 20, r.y + 8, 40, 40);
-        ctx.fillStyle = "#ffd092"; ctx.fillRect(cx - 20, r.y + 49, 40 * readyPart, 2);
+        ctx.fillRect(cx - 17, r.y + 5, 34, 34);
+        ctx.fillStyle = "#ffd092"; ctx.fillRect(cx - 17, r.y + 40, 34 * readyPart, 2);
       }
-      ctx.font = "600 14px Segoe UI"; ctx.fillStyle = enabled ? "#f5eee5" : "#a39cac";
-      ctx.fillText(LABEL[id], cx, r.y + 62);
+      if (skill.auto) {
+        ctx.font = "600 9px Segoe UI"; ctx.textAlign = "right"; ctx.fillStyle = auto ? "#aee3b6" : "#9f9caf";
+        ctx.fillText(auto ? "АВТО" : skill.type === "auto" ? "ВЫКЛ" : "РУЧН.", r.x + r.w - 5, r.y + 14);
+        ctx.textAlign = "center";
+      }
+      ctx.font = "600 12px Segoe UI"; ctx.fillStyle = enabled ? "#f5eee5" : "#aaa6b6";
+      ctx.fillText(LABEL[id], cx, r.y + 54);
       ctx.font = "12px Segoe UI"; ctx.fillStyle = color;
       const detail = id === "potion" ? "×" + run.sim.potionsLeft
-        : timing.left > 0 ? cooldownLabel(timing.left) : timing.cost + " · " + RES_NAME[skill.res];
-      ctx.fillText(detail, cx, r.y + 80);
+        : timing.frozen ? "Заморозка" : timing.stunned ? "Оглушение"
+        : timing.left > 0 && skill.type !== "auto" ? cooldownLabel(timing.left) : timing.cost + " · " + RES_NAME[skill.res];
+      ctx.fillText(detail, cx, r.y + 69);
     }
   }
 
-  return { draw, drawIcon, slotAt, slotRect, equipRunSkill, slotUsable, Y0 };
+  return { draw, drawIcon, slotAt, equipRunSkill, slotUsable, Y0 };
 })();
