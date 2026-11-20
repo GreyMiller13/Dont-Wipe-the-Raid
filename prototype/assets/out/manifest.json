@@ -1,0 +1,156 @@
+{
+ "floor": 540,
+ "sprites": {
+  "goblinW": {
+   "w": 56,
+   "h": 64
+  },
+  "goblinA": {
+   "w": 41,
+   "h": 64
+  },
+  "goblinK": {
+   "w": 68,
+   "h": 64
+  },
+  "skeletonW": {
+   "w": 45,
+   "h": 74
+  },
+  "skeletonA": {
+   "w": 47,
+   "h": 74
+  },
+  "skeletonM": {
+   "w": 49,
+   "h": 74
+  },
+  "lich": {
+   "w": 67,
+   "h": 92
+  },
+  "warrior": {
+   "w": 152,
+   "h": 116
+  },
+  "ranger": {
+   "w": 152,
+   "h": 116
+  },
+  "priest": {
+   "w": 152,
+   "h": 116
+  },
+  "priest-release": {
+   "w": 152,
+   "h": 116
+  },
+  "arrow-multishot": {
+   "w": 48,
+   "h": 10
+  },
+  "arrow-precise": {
+   "w": 68,
+   "h": 14
+  },
+  "warrior-body": {
+   "w": 152,
+   "h": 116
+  },
+  "warrior-upper": {
+   "w": 18,
+   "h": 12
+  },
+  "warrior-fore": {
+   "w": 18,
+   "h": 12
+  },
+  "warrior-blade": {
+   "w": 36,
+   "h": 11
+  },
+  "chest-closed": {
+   "w": 68,
+   "h": 53
+  },
+  "chest-open": {
+   "w": 68,
+   "h": 53
+  }
+ },
+ "frames": {
+  "warrior": [
+   "warrior-f1.png",
+   "warrior-f2.png",
+   "warrior-f3.png",
+   "warrior-f4.png",
+   "warrior-f5.png"
+  ],
+  "ranger": [
+   "ranger-f1.png",
+   "ranger-f2.png",
+   "ranger-f3.png",
+   "ranger-f4.png",
+   "ranger-f5.png",
+   "ranger-f6.png"
+  ],
+  "priest": [
+   "priest-f1.png",
+   "priest-f2.png",
+   "priest-f3.png",
+   "priest-f4.png",
+   "priest-f5.png",
+   "priest-f6.png"
+  ],
+  "priest-cast": [
+   "priest-cast-f1.png",
+   "priest-cast-f2.png",
+   "priest-cast-f3.png",
+   "priest-cast-f4.png",
+   "priest-cast-f5.png",
+   "priest-cast-f6.png"
+  ],
+  "fireball-flight": [
+   "fireball-flight-f1.png",
+   "fireball-flight-f2.png",
+   "fireball-flight-f3.png"
+  ],
+  "fireball-impact": [
+   "fireball-impact-f1.png",
+   "fireball-impact-f2.png",
+   "fireball-impact-f3.png",
+   "fireball-impact-f4.png",
+   "fireball-impact-f5.png"
+  ],
+  "ranger-multishot": [
+   "ranger-multishot-f1.png",
+   "ranger-multishot-f2.png",
+   "ranger-multishot-f3.png",
+   "ranger-multishot-f4.png",
+   "ranger-multishot-f5.png",
+   "ranger-multishot-f6.png"
+  ],
+  "ranger-precise": [
+   "ranger-precise-f1.png",
+   "ranger-precise-f2.png",
+   "ranger-precise-f3.png",
+   "ranger-precise-f4.png",
+   "ranger-precise-f5.png",
+   "ranger-precise-f6.png"
+  ]
+ },
+ "bgs": {
+  "1": "room1.jpg",
+  "2": "room2.jpg",
+  "3": "room3.jpg",
+  "4": "room4.jpg",
+  "5": "room5.jpg",
+  "6": "room6.jpg",
+  "7": "room7.jpg",
+  "8": "room8.jpg",
+  "9": "room9.jpg",
+  "10": "room10.jpg",
+  "11": "room11.jpg",
+  "12": "room12.jpg"
+ }
+}
