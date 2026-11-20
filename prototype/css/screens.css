@@ -27,7 +27,7 @@
   padding: 108px 64px 0;
   background:
     linear-gradient(90deg, #0a1014 0%, #0a1014c9 22%, #0a101423 44%, transparent 59%),
-    url("../assets/backgrounds/skill-tree-cemetery-v2.webp") center/cover #0a1014;
+    url("../assets/backgrounds/dragon-menu-v4-optimized.webp") center/cover #0a1014;
 }
 .scr-cover::before {
   content: "";

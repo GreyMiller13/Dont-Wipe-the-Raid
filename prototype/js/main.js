@@ -59,4 +59,9 @@ window.DWR = window.DWR || {};
   fit();
   DWR.showScreen("menu");
   requestAnimationFrame(loop);
+
+  const cover = new Image();
+  cover.fetchPriority = "high";
+  cover.src = document.getElementById("menu-cover-preload").href;
+  cover.decode().then(DWR.Assets.preload, DWR.Assets.preload);
 })();
