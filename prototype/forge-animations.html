@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Анимации кузни — Don't Wipe the Raid</title>
+  <link rel="icon" href="assets/out/coin.png">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="css/screens.css">
+  <style>
+    html, body { height: auto; min-height: 100%; overflow: auto; }
+    main { max-width: 1280px; margin: auto; padding: 24px; }
+    h1 { margin: 0 0 16px; font: 400 34px var(--display); }
+    .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+    select { min-height: 40px; padding: 0 12px; border: 1px solid var(--edge); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
+    .controls button { min-height: 40px; }
+    canvas { display: block; width: 100%; height: auto; border-radius: 10px; background: var(--bg); }
+    #preview-status { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Анимации кузни</h1>
+    <div class="controls" aria-label="Управление предпросмотром">
+      <label for="forge-actor">Персонаж</label>
+      <select id="forge-actor">
+        <option value="orc-shield">Орк-щитоносец</option>
+        <option value="orc-firebolt">Орк-поджигатель</option>
+        <option value="orc-axe">Орк с топором</option>
+        <option value="krag-armored">Краг в броне</option>
+        <option value="krag-enraged">Краг после потери брони</option>
+      </select>
+      <button type="button" class="btn btn-gold" data-pose="idle" aria-pressed="true">Стойка</button>
+      <button type="button" class="btn" data-pose="walk" aria-pressed="false">Ходьба</button>
+      <button type="button" class="btn" data-pose="attack" aria-pressed="false">Атака</button>
+      <button type="button" class="btn" data-pose="dead" aria-pressed="false">Смерть</button>
+    </div>
+    <canvas id="forge-stage" width="1280" height="720" aria-label="Анимация персонажа кузни"></canvas>
+    <p role="status" id="preview-status" hidden></p>
+  </main>
+  <script src="js/forge-motion.js"></script>
+  <script>
+    "use strict";
+    const select = document.getElementById("forge-actor");
+    const canvas = document.getElementById("forge-stage");
+    const status = document.getElementById("preview-status");
+    const ctx = canvas.getContext("2d");
+    const buttons = document.querySelectorAll("[data-pose]");
+    const motion = DWR.ForgeMotion;
+    const ground = 540;
+    const atlases = new Map();
+    const halls = new Map();
+    let pose = "idle", since = performance.now();
+
+    function imageFor(cache, url) {
+      if (!cache.has(url)) {
+        const image = new Image();
+        image.addEventListener("error", () => {
+          status.hidden = false;
+          status.textContent = "Не удалось загрузить " + url;
+        });
+        image.src = url;
+        cache.set(url, image);
+      }
+      return cache.get(url);
+    }
+
+    function play(next) {
+      pose = next;
+      since = performance.now();
+      for (const button of buttons) {
+        const active = button.dataset.pose === next;
+        button.classList.toggle("btn-gold", active);
+        button.setAttribute("aria-pressed", active);
+      }
+    }
+    for (const button of buttons) button.addEventListener("click", () => play(button.dataset.pose));
+    select.addEventListener("change", () => play(pose));
+
+    function frame(now) {
+      const kind = select.value;
+      const boss = kind.startsWith("krag-");
+      const enraged = kind === "krag-enraged";
+      const h = boss ? 350 : 216;
+      const hall = imageFor(halls, boss ? "assets/backgrounds/forge-foundry.webp" : "assets/backgrounds/forge-battle-hall.webp");
+      const atlas = imageFor(atlases, "assets/out/" + motion.atlasFile(kind));
+      const t = Math.max(0, (now - since) / 1000);
+      let x = 710, poseT = 0;
+      if (pose === "walk") {
+        x = 920 - 500 * ((t % 3.6) / 3.6);
+        poseT = (t / (boss ? 0.92 : 0.74)) % 1;
+      } else if (pose === "attack") {
+        const duration = enraged ? 0.61 : boss ? 1.22 : 0.90;
+        poseT = Math.min(1, (t % (duration + 0.52)) / duration);
+      } else if (pose === "dead") {
+        poseT = Math.min(1, t / (boss ? 1.62 : 1.08));
+      }
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (hall.naturalWidth) ctx.drawImage(hall, 0, 0, canvas.width, canvas.height);
+      if (atlas.naturalWidth) {
+        ctx.fillStyle = "#0504087d";
+        ctx.beginPath();
+        ctx.ellipse(x - (pose === "dead" ? h * 0.16 * poseT : 0), ground + 3,
+          h * (0.26 + (pose === "dead" ? poseT * 0.25 : 0)), 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        motion.draw(ctx, atlas, { kind, x, y: ground, h, pose, poseT });
+      }
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>

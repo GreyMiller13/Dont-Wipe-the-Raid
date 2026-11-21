@@ -11,7 +11,7 @@ DWR.Assets = (function () {
   const SPRITES = ["warrior", "priest", "priest-release", "ranger",
                    "warrior-body", "warrior-upper", "warrior-fore", "warrior-blade",
                    "map-boss", "map-chest",
-                   "arrow", "arrow-multishot", "arrow-precise", "coin", "rune", "chest-closed", "chest-open"];
+                   "arrow", "arrow-multishot", "arrow-precise", "coin", "rune", "chest-v2"];
   const FRAMES = { warrior: 5, ranger: 6, priest: 6, "priest-cast": 6,
     "ranger-multishot": 6, "ranger-precise": 6, "fireball-flight": 3, "fireball-impact": 5 };
 
@@ -35,6 +35,8 @@ DWR.Assets = (function () {
   const iconFile = id => "icon-" + id + ".png";
   function done() { ready = true; cbs.splice(0).forEach(cb => cb()); }
   const artIds = rooms => new Set(rooms.map(room => room.art ?? room.id));
+  const roomFile = art => typeof art === "string" ? "../backgrounds/" + art + ".webp" : "room" + art + ".jpg";
+  const roomUrl = room => assetUrl(roomFile(room.art ?? room.id));
 
   function preloadLocation(id) {
     const config = DWR.CONFIG, location = config.locations[id];
@@ -44,10 +46,13 @@ DWR.Assets = (function () {
         const group = { pending: 0, done: resolve };
         const rooms = [...location.rooms, location.treasure].map(index => config.rooms[index]).filter(Boolean);
         for (const art of artIds(rooms)) {
-          if (!img["room" + art]) img["room" + art] = loadOne("room" + art + ".jpg", group);
+          if (!img["room" + art]) img["room" + art] = loadOne(roomFile(art), group);
         }
         for (const kind of new Set(rooms.flatMap(room => room.enemies))) {
           const enemy = config.enemies[kind];
+          for (const model of enemy.motion ?? []) {
+            if (!img[model]) img[model] = loadOne(DWR.ForgeMotion.atlasFile(model), group);
+          }
           if (!enemy.spritePoses || img[kind]) continue;
           img[kind] = loadOne(kind + "-poses.png", group);
           if (enemy.fall) falls[kind] = loadOne(kind + "-fall.png", group);
@@ -71,7 +76,7 @@ DWR.Assets = (function () {
     // Загружаем прицел заранее, чтобы первое перетаскивание сразу сменило курсор.
     loadOne("cursor-target.png");
     for (const [kind, enemy] of Object.entries(DWR.CONFIG.enemies)) {
-      if (enemy.spritePoses) continue;
+      if (enemy.spritePoses || enemy.motion) continue;
       const file = kind === "goblinKing" ? "goblinK" : kind;
       img[kind] = loadOne(file + ".png");
       enemyLayers[kind] = { body: loadOne(file + "-body.png"), arm: loadOne(file + "-arm.png") };
@@ -80,7 +85,7 @@ DWR.Assets = (function () {
     const deferredRooms = new Set(Object.values(DWR.CONFIG.locations).filter(location => location.loadOnSelect)
       .flatMap(location => [...location.rooms, location.treasure]));
     for (const id of artIds(DWR.CONFIG.rooms.filter((room, index) => !deferredRooms.has(index))))
-      img["room" + id] = loadOne("room" + id + ".jpg");
+      img["room" + id] = loadOne(roomFile(id));
     for (const k in FRAMES) {
       frames[k] = [];
       for (let i = 1; i <= FRAMES[k]; i++) frames[k].push(loadOne(k + "-f" + i + ".png"));
@@ -88,7 +93,7 @@ DWR.Assets = (function () {
   }
 
   return {
-    img, frames, enemyLayers, icons, statusIcons, walk, falls, assetUrl, preload, preloadLocation,
+    img, frames, enemyLayers, icons, statusIcons, walk, falls, assetUrl, roomUrl, preload, preloadLocation,
     iconUrl: id => assetUrl(iconFile(id)),
     get ready() { return ready; },
     onReady(cb, location) {

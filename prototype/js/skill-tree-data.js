@@ -6,8 +6,8 @@ window.DWR = window.DWR || {};
 const upgradeNode = (id, name, desc, [base, mul], max, effect, parent = null, requiresLevel = 1) =>
   ({ id, name, desc, base, mul, max, effect, parent, requiresLevel });
 const upgradeStat = (stat, add) => ({ stat, add });
-const activeNode = (id, name, desc) =>
-  upgradeNode(id, name, desc, [0, 1], 1, { unlockSkill: id, unlockAt: 1 });
+const activeNode = (id, name, desc, parent = null, requiresLevel = 1) =>
+  upgradeNode(id, name, desc, [0, 1], 1, { unlockSkill: id, unlockAt: 1 }, parent, requiresLevel);
 const costReduction = (id, name, desc, add, parent, max = 2) => ({
   ...upgradeNode(id, name, desc, [500, 8], max, upgradeStat(id, add), parent),
   prices: Array.from({ length: max }, (_, index) => index === 0 ? 500 : 4000)
@@ -34,7 +34,10 @@ DWR.SKILL_TREES = {
       upgradeNode("blockDur", "Стойкость блока", "+1 с к длительности щита", [25, 1.3], 3, upgradeStat("blockDur", 1), "block"),
       upgradeNode("blockHaste", "Быстрая защита", "−0,6 с к перезарядке щита", [34, 1.4], 4, upgradeStat("blockHaste", 0.6), "block"),
       costReduction("blockCost", "Экономный блок", "−4 ярости к цене щита", 4, "block", 3),
-      upgradeNode("blockHeal", "Второе дыхание", "+8 HP воину при активации щита", [38, 1.4], 3, upgradeStat("blockHeal", 8), "blockDur", 2)
+      upgradeNode("blockHeal", "Второе дыхание", "+8 HP воину при активации щита", [38, 1.4], 3, upgradeStat("blockHeal", 8), "blockDur", 2),
+      activeNode("sacrifice", "Жертвенность", "На 4 с перенаправляет воину весь урон по союзникам. 45 ярости, перезарядка 36 с", "block"),
+      upgradeNode("sacrificeDuration", "Долг защитника", "+1 с к длительности «Жертвенности»", [150, 1.75], 3, upgradeStat("sacrificeDuration", 1), "sacrifice"),
+      upgradeNode("sacrificeHaste", "Несокрушимая клятва", "−2,5 с к перезарядке «Жертвенности»", [220, 1.65], 3, upgradeStat("sacrificeHaste", 2.5), "sacrifice")
     ] },
     { id: "resolve", name: "Стойкость и ярость", nodes: [
       upgradeNode("wHp", "Здоровье", "+15 к максимуму HP воина", [10, 1.25], 10, upgradeStat("wHp", 15)),
@@ -51,14 +54,27 @@ DWR.SKILL_TREES = {
       costReduction("healCost", "Тихая молитва", "−1 маны к стоимости лечения", 1, "healPow"),
       upgradeNode("pCrit", "Благодать", "+3 п. п. к шансу крита лечения и фаербола. Крит усиливает заклинание до 150%. Базовый шанс 5%, после прокачки 20%", [48, 1.5], 5, upgradeStat("pCrit", 0.03), "healPow", 2),
       upgradeNode("healWard", "Покров света", "Лечение даёт −14% входящего урона на 1,25 с за уровень", [43, 1.4], 4, upgradeStat("healWard", 1.25), "healHaste"),
-      upgradeNode("healOverflow", "Экстренная помощь", "+8 к лечению цели с 35% HP или меньше", [32, 1.35], 4, upgradeStat("healOverflow", 8), "healPow", 2)
+      upgradeNode("healOverflow", "Экстренная помощь", "+8 к лечению цели с 35% HP или меньше", [32, 1.35], 4, upgradeStat("healOverflow", 8), "healPow", 2),
+      activeNode("massHeal", "Массовое восстановление", "Лечит каждого живого героя на 50 ОЗ, включая жрицу. 18 маны, перезарядка 24 с", "healPow", 3),
+      { ...upgradeNode("massHealPower", "Изобилие света", "+10 ОЗ каждому герою от «Массового восстановления»", [800, 3], 3, upgradeStat("massHealPower", 10), "massHeal"), prices: [800, 2400, 5800] },
+      costReduction("massHealCost", "Милость света", "−3 маны к стоимости «Массового восстановления»", 3, "massHeal"),
+      upgradeNode("massHealHaste", "Ясная молитва", "−2,5 с к перезарядке «Массового восстановления»", [220, 1.7], 3, upgradeStat("massHealHaste", 2.5), "massHeal")
     ] },
     { id: "flame", name: "Фаербол", nodes: [
       activeNode("fireball", "Фаербол", "20 урона за 3 маны. Перезарядка 4,2 с"),
       upgradeNode("fireDmg", "Раскалённое ядро", "+4 к урону фаербола", [34, 1.32], 5, upgradeStat("fireDmg", 4), "fireball"),
       upgradeNode("fireballHaste", "Беглое пламя", "−0,3 с к перезарядке фаербола", [29, 1.35], 4, upgradeStat("fireballHaste", 0.30), "fireDmg"),
       costReduction("fireballCost", "Малая искра", "−1 маны к стоимости фаербола", 1, "fireDmg"),
-      upgradeNode("fireballBlast", "Огненная волна", "+3 урона соседним врагам при попадании фаербола", [48, 1.4], 4, upgradeStat("fireballBlast", 3), "fireDmg", 2)
+      upgradeNode("fireballBlast", "Огненная волна", "+3 урона соседним врагам при попадании фаербола", [48, 1.4], 4, upgradeStat("fireballBlast", 3), "fireDmg", 2),
+      activeNode("fireTornado", "Огненный смерч", "После каста 2,8 с проходит до правого края и наносит 48 урона каждому врагу на пути. 20 маны, перезарядка 22 с", "fireDmg", 2),
+      upgradeNode("fireTornadoDamage", "Пылающий вихрь", "+8 урона «Огненному смерчу»", [180, 1.65], 4, upgradeStat("fireTornadoDamage", 8), "fireTornado"),
+      costReduction("fireTornadoCost", "Тлеющий поток", "−2 маны к стоимости «Огненного смерча»", 2, "fireTornado"),
+      upgradeNode("fireTornadoHaste", "Цикл пламени", "−2 с к перезарядке «Огненного смерча»", [185, 1.7], 3, upgradeStat("fireTornadoHaste", 2), "fireTornado")
+    ] },
+    { id: "purification", name: "Очищение", nodes: [
+      activeNode("dispel", "Рассеять негативное заклинание", "Снимает один негативный эффект с выбранного героя. ЛКМ переключает автоиспользование. 10 маны, перезарядка 12 с"),
+      costReduction("dispelCost", "Экономное очищение", "−2 маны к стоимости рассеивания", 2, "dispel"),
+      upgradeNode("dispelHaste", "Быстрое очищение", "−1,5 с к перезарядке рассеивания", [95, 1.6], 3, upgradeStat("dispelHaste", 1.5), "dispel")
     ] },
     { id: "mana", name: "Мана", nodes: [
       upgradeNode("fireballUnlock", "Глубокий резерв", "+20 к запасу маны жрицы", [230, 1.3], 1, upgradeStat("manaPool", 20)),
@@ -90,7 +106,7 @@ DWR.SKILL_TREES = {
       upgradeNode("rExtraArrow", "Плотный залп", "+3 п. п. урона стрелам залпа от урона автоатаки, если они летят в одну и ту же цель", [46, 1.4], 2, upgradeStat("rExtraArrow", 1), "rFan", 2)
     ] },
     { id: "aim", name: "Меткий выстрел", nodes: [
-      activeNode("preciseShot", "Меткий выстрел", "50 урона за 60 фокуса. Перезарядка 8 с"),
+      activeNode("preciseShot", "Меткий выстрел", "50 урона за 60 фокуса. Перезарядка 8 с. В авто стреляет по ближайшему врагу и имеет приоритет над «Мультивыстрелом»"),
       upgradeNode("rPrecision", "Пробивная стрела", "+10 к урону «Меткого выстрела»", [30, 1.33], 4, upgradeStat("rPrecision", 10), "preciseShot"),
       upgradeNode("preciseShotHaste", "Мгновенный прицел", "−0,8 с к перезарядке «Меткого выстрела»", [36, 1.35], 4, upgradeStat("preciseShotHaste", 0.8), "preciseShot"),
       costReduction("preciseShotCost", "Выверенный бросок", "−5 фокуса к стоимости «Меткого выстрела»", 5, "preciseShot", 3),
@@ -99,6 +115,10 @@ DWR.SKILL_TREES = {
     { id: "focus", name: "Фокус", nodes: [
       upgradeNode("rFocusKill", "Добыча охотника", "+4 фокуса за убийство врага отрядом", [25, 1.3], 4, upgradeStat("rFocusKill", 4)),
       upgradeNode("rFocusRegen", "Сосредоточение", "+1 фокуса в секунду в бою", [35, 1.35], 3, upgradeStat("rFocusRegen", 1), "rFocusKill", 2)
+    ] },
+    { id: "traps", name: "Мастер ловушек", nodes: [
+      activeNode("bomb", "Бомба", "Одна бомба на старте забега при экипировке. Перетащите на поле. Взрыв наносит 38 урона врагам в области"),
+      upgradeNode("bombStock", "Запас бомб", "+1 бомба на старте рейда за ранг", [85, 1.65], 4, upgradeStat("bombStock", 1), "bomb")
     ] }
   ] },
   raid: { name: "Рейд", branches: [

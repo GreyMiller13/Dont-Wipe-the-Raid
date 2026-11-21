@@ -17,6 +17,7 @@ DWR.skillRankPrice = (node, rank) => {
   if (rank === 1 && DWR.CONFIG.skills[DWR.nodeHeroSkill(node)]?.innate) return 0;
   return node.prices?.[rank - 1] ?? Math.round(node.base * node.mul ** (rank - 1) * (1 + Math.max(0, rank - 2) * 0.10));
 };
+const forgeEnemy = stats => ({ ...stats, hp: stats.hp * 1.2, dmg: stats.dmg * 1.2 });
 
 DWR.CONFIG = {
   canvas: { w: 1280, h: 720 },
@@ -28,7 +29,9 @@ DWR.CONFIG = {
     crypt: { name: "Крипта кладбища", rooms: [7, 8, 9, 11, 12, 13, 10], treasure: 14, progress: "cryptDone", unlockAfter: "dungeon" },
     wilds: { name: "Дремучий лес", rooms: [15, 16, 17, 18, 19, 20, 21, 22, 23, 24], treasure: 25,
       progress: "wildsDone", unlockAfter: "crypt", loadOnSelect: true, loot: { normal: 7, boss: 70, chest: 90 } },
-    demoPreview: { name: "Привал", rooms: [], unlockAfter: "wilds", previewArt: "assets/backgrounds/demo-camp.webp" }
+    forge: { name: "Кузня Чёрного Горна", rooms: [26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37], treasure: 38,
+      progress: "forgeDone", unlockAfter: "wilds", loadOnSelect: true, loot: { normal: 8, boss: 95, chest: 110 } },
+    demoPreview: { name: "Привал", rooms: [], unlockAfter: "forge", previewArt: "assets/backgrounds/demo-camp.webp" }
   },
   rooms: [
     { id: 1, enemies: ["goblinW", "goblinW"] },
@@ -56,7 +59,20 @@ DWR.CONFIG = {
     { id: 23, art: 19, tier: 4, enemies: ["wolfhound", "wolfhound", "werewolf", "werewolf"] },
     { id: 24, art: 19, tier: 5, enemies: ["wolfhound", "werewolf", "werewolf"] },
     { id: 25, art: 19, boss: true, enemies: ["lycan"] },
-    { id: 26, art: 19, chest: true, enemies: [] }
+    { id: 26, art: 19, chest: true, enemies: [] },
+    { id: 27, art: "forge-mine", tier: 0, enemies: ["orc-shield", "orc-shield"] },
+    { id: 28, art: "forge-mine", tier: 0, enemies: ["orc-shield", "orc-firebolt"] },
+    { id: 29, art: "forge-mine", tier: 1, enemies: ["orc-shield", "orc-axe"] },
+    { id: 30, art: "forge-workshop", tier: 1, enemies: ["orc-shield", "orc-firebolt", "orc-firebolt"] },
+    { id: 31, art: "forge-workshop", tier: 2, enemies: ["orc-shield", "orc-axe", "orc-firebolt"] },
+    { id: 32, art: "forge-workshop", tier: 2, enemies: ["orc-shield", "orc-shield", "orc-axe"] },
+    { id: 33, art: "forge-armory", tier: 3, enemies: ["orc-shield", "orc-shield", "orc-firebolt"] },
+    { id: 34, art: "forge-armory", tier: 3, enemies: ["orc-shield", "orc-axe", "orc-firebolt", "orc-firebolt"] },
+    { id: 35, art: "forge-battle-hall", tier: 4, enemies: ["orc-shield", "orc-axe", "orc-axe"] },
+    { id: 36, art: "forge-battle-hall", tier: 5, enemies: ["orc-shield", "orc-axe", "orc-axe", "orc-firebolt"] },
+    { id: 37, art: "forge-foundry", tier: 6, enemies: ["orc-shield", "orc-shield", "orc-axe", "orc-firebolt"] },
+    { id: 38, art: "forge-foundry", boss: true, enemies: ["krag"] },
+    { id: 39, art: "forge-armory", chest: true, enemies: [] }
   ],
   enemyGrowthPerRoom: 0.15, // m = 1 + 0.15*(боевая комната - 1)
 
@@ -102,14 +118,41 @@ DWR.CONFIG = {
       speed: 148, stopRange: 124, attack: { windup: 0.82, recovery: 0.52, impact: "claw", party: true },
       howl: { initial: 3.4, cooldown: 16, windup: 1.18, recovery: 0.52, status: "stunned" },
       death: { duration: 1.9, land: 0.76, tint: "#d8d1bb" },
-      regen: { threshold: 0.5, interval: 1, healthFraction: 0.05, status: "lycanRegen" } }
+      regen: { threshold: 0.5, interval: 1, healthFraction: 0.05, status: "lycanRegen" } },
+    "orc-shield": forgeEnemy({ name: "Орк-щитоносец", hp: 115, dmg: 13, interval: 2.35, sizeMul: 1.08,
+      motion: ["orc-shield"], speed: 156, stopRange: 98, formationGap: 16, fall: { duration: 1.08 },
+      attack: { windup: 0.52, recovery: 0.40, impact: "enemy" },
+      guard: { initial: 2.8, cooldown: 10, windup: 0.68, recovery: 0.34, status: "orcGuard" } }),
+    "orc-firebolt": forgeEnemy({ name: "Орк-поджигатель", hp: 76, dmg: 8, interval: 3.15, ranged: true, sizeMul: 0.98,
+      motion: ["orc-firebolt"], fall: { duration: 1.08 },
+      attack: { windup: 0.68, recovery: 0.40, projectile: "firebolt", aimRear: true } }),
+    "orc-axe": forgeEnemy({ name: "Орк с топором", hp: 108, dmg: 16, interval: 2.55, sizeMul: 1.16,
+      motion: ["orc-axe"], speed: 174, stopRange: 104, formationGap: 16, fall: { duration: 1.14 },
+      attack: { windup: 0.63, recovery: 0.41, impact: "claw" },
+      bleed: { chance: 0.25, status: "bleeding" },
+      buff: { id: "orcWarCry", targets: ["orc-shield", "orc-firebolt", "orc-axe"], initial: 3.6,
+        cooldown: 12, windup: 0.94, recovery: 0.42 } }),
+    krag: forgeEnemy({ name: "Краг, хранитель горна", hp: 940, armor: 360, dmg: 18, interval: 2.8, sizeMul: 1.67, boss: true,
+      motion: ["krag-armored", "krag-enraged"], speed: 150, stopRange: 119,
+      attack: { windup: 0.68, recovery: 0.51, impact: "smash" },
+      stunStrike: { initial: 7, cooldown: 11, windup: 1.05, recovery: 0.54, stun: 2.5, impact: "smash" },
+      furnace: { interval: 15, duration: 5, interruptDamage: 300, speed: 840, status: "burning" },
+      death: { duration: 1.62, land: 0.78, tint: "#ffb275", forward: true } })
   },
   effects: {
     healWard: { name: "Покров света", damageTakenMultiplier: 0.86, icon: "icon-heal.png" },
     boneFury: { name: "Некротическое усиление", duration: 5, damageMultiplier: 1.25, icon: "status-bone-fury.png" },
-    stunned: { name: "Оглушение", duration: 4, color: "#ffd98d" },
-    frozen: { name: "Заморозка", duration: 10, tickSec: 1, healthFraction: 0.05, color: "#bceaff" },
-    lycanRegen: { name: "Регенерация", color: "#85d9a2" }
+    stunned: { name: "Оглушение", duration: 4, dispelPriority: 4, color: "#ffd98d" },
+    frozen: { name: "Заморозка", duration: 10, tickSec: 1, healthFraction: 0.05, dispelPriority: 5, color: "#bceaff" },
+    lycanRegen: { name: "Регенерация", color: "#85d9a2" },
+    orcGuard: { name: "Защита щитом", duration: 3, damageTakenMultiplier: 0.4, after: "orcExposed", color: "#a8cce7" },
+    orcExposed: { name: "Открытая стойка", duration: 2, damageTakenMultiplier: 1.2, color: "#ffe496" },
+    orcWarCry: { name: "Боевой клич", duration: 6, damageMultiplier: 1.25, attackSpeedMultiplier: 1.25, color: "#ffa55c" },
+    bleeding: { name: "Кровотечение", duration: 7, tickSec: 1, healthFraction: 0.03, dispelPriority: 2, color: "#ff7781" },
+    ember: { name: "Ожог от болта", duration: 3, tickSec: 1, healthFraction: 0.025, dispelPriority: 1, color: "#ffc07f" },
+    burning: { name: "Горение", duration: 5, tickSec: 1, healthFraction: 0.05, dispelPriority: 3, color: "#ff9b60" },
+    sacrifice: { name: "Жертвенность", color: "#f7cc86" },
+    kragRage: { name: "Ярость Крага", duration: Infinity, damageMultiplier: 2, attackSpeedMultiplier: 2, color: "#ff856b" }
   },
 
   // --- Ресурсы (обнуляются на старте забега; реген — ТОЛЬКО пока идёт бой) ---
@@ -125,12 +168,21 @@ DWR.CONFIG = {
     powerStrike: { name: "Мощный удар", owner: "warrior", type: "targeted", cost: 50, res: "rage", dmg: 40, cooldown: 6.5,
       auto: true, manualWhileAuto: false },
     block: { name: "Глухая оборона", owner: "warrior", type: "instant", cost: 40, res: "rage", dmgReduce: 0.75, durSec: 3, cooldown: 9 },
+    sacrifice: { name: "Жертвенность", owner: "warrior", type: "instant", cost: 45, res: "rage", durSec: 4, cooldown: 36 },
     heal: { name: "Лечение", owner: "priest", type: "ally", res: "mana", cost: 4, innate: true, auto: true, defaultAuto: true, animation: 1.1 },
+    dispel: { name: "Рассеять негативное заклинание", owner: "priest", type: "ally", res: "mana", cost: 10,
+      auto: true, cooldown: 12, castTime: 0.28, recovery: 0.52 },
+    massHeal: { name: "Массовое восстановление", owner: "priest", type: "instant", res: "mana", cost: 18,
+      heal: 50, cooldown: 24, castTime: 1.05, recovery: 0.5 },
     fireball: { name: "Фаербол", owner: "priest", type: "targeted", res: "mana", cost: 3, auto: true, dmg: 20, cooldown: 4.2, release: 0.54, flight: 0.38 },
+    fireTornado: { name: "Огненный смерч", owner: "priest", type: "ground", res: "mana", cost: 20, auto: true,
+      dmg: 48, cooldown: 22, castTime: 2.8, recovery: 0.48, speed: 610 },
     multishot: { name: "Мультивыстрел", owner: "ranger", type: "auto", cost: 10, res: "focus", auto: true, arrowDamage: 0.60, targets: 3,
       focusRegenMultiplier: 0.5, focusOnKillMultiplier: 0.2 },
-    preciseShot: { name: "Меткий выстрел", owner: "ranger", type: "targeted", cost: 60, res: "focus", dmg: 50, cooldown: 8 },
-    potion:      { name: "Зелье лечения",  owner: null,      type: "potion" }
+    preciseShot: { name: "Меткий выстрел", owner: "ranger", type: "targeted", cost: 60, res: "focus", dmg: 50, cooldown: 8,
+      auto: true, manualWhileAuto: false },
+    bomb: { name: "Бомба", owner: "ranger", type: "ground", stock: 1, dmg: 38, radius: 118, flight: 0.58 },
+    potion: { name: "Зелье лечения", owner: null, type: "potion" }
   },
 
   trees: DWR.SKILL_TREES ?? require('./skill-tree-data.js'),

@@ -98,6 +98,7 @@ DWR.Screens = (function () {
           </fieldset>
           <footer class="scr-dialog-footer scr-settings-footer">
             <span>Сохраняется автоматически</span>
+            <a class="scr-settings-credit" href="assets/out/music/CREDITS.txt" target="_blank" rel="noopener">Авторы музыки</a>
             <button class="btn btn-gold">Готово</button>
           </footer>
         </form>
@@ -128,8 +129,10 @@ DWR.Screens = (function () {
         const percent = Math.round(inp.valueAsNumber * 100) + "%";
         output.value = percent;
         inp.setAttribute("aria-valuetext", percent);
+        DWR.Audio.setVolumes(S.data.settings);
         S.save();
       });
+      if (key === "sound") inp.addEventListener("change", () => DWR.Audio.play("ui"));
     }
   }
 
@@ -176,9 +179,12 @@ DWR.Screens = (function () {
     const treasure = S.treasureAvailable(id);
     const room = DWR.CONFIG.rooms[location.rooms[0]];
     const isPreview = !!location.previewArt;
-    const art = location.previewArt ?? DWR.Assets.assetUrl("room" + (room.art ?? room.id) + ".jpg");
+    if (DWR.currentScreen() === "location") DWR.Audio.setTheme(isPreview ? "rest" : "menu");
+    const art = location.previewArt ?? DWR.Assets.roomUrl(room);
     const cleared = S.locationCleared(id);
-    const potions = S.hasSkill("potion") && S.data.panel.includes("potion") ? S.stats().potionStock : 0;
+    const stats = S.stats(), panel = S.data.panel;
+    const potions = S.hasSkill("potion") && panel.includes("potion") ? stats.potionStock : 0;
+    const bombs = panel.includes("bomb") ? S.bombStock(stats) : 0;
     const arrow = (side, label, enabled) => `
       <button class="btn scr-carousel-arrow scr-carousel-${side}" aria-label="${label}" ${enabled ? "" : "disabled"}>
         <span aria-hidden="true"></span>
@@ -191,6 +197,7 @@ DWR.Screens = (function () {
             <span><img src="assets/out/coin.png" alt=""> <b>${S.data.coins}</b> монет</span>
             <span class="scr-camp-runes" title="Руны навыков"><img src="assets/out/rune.png" alt="">Руны <b>${S.data.runes}</b></span>
             ${potions > 0 ? `<span class="scr-camp-potions"><img src="${DWR.Assets.iconUrl("potion")}" alt="">Зелья <b>${potions}</b></span>` : ""}
+            ${bombs > 0 ? `<span><img src="${DWR.Assets.iconUrl("bomb")}" alt="">Бомбы <b>${bombs}</b></span>` : ""}
             <button id="scr-btn-menu" class="btn">Меню</button>
           </div>
         </header>
@@ -261,9 +268,10 @@ DWR.Screens = (function () {
     const reason = result?.reason || "retreat";
     const title = result?.treasureOnly && reason === "win" ? "Награда получена" : titles[result?.reason] || "Забег завершён";
     const { coins = 0, runes = 0, roomsCleared = 0, roomsTotal = 0, roomId = 1, location = "dungeon", party = [] } = result || {};
-    const previewId = "demoPreview";
-    const preview = DWR.CONFIG.locations[previewId];
-    const showPreview = reason === "win" && location === preview.unlockAfter && S.locationUnlocked(previewId);
+    const locations = DWR.CONFIG.locations;
+    const nextId = location === "wilds" ? "forge" : "demoPreview";
+    const showNext = reason === "win" && location === locations[nextId].unlockAfter && S.locationUnlocked(nextId);
+    const room = DWR.CONFIG.rooms.find(room => room.id === roomId) ?? { id: roomId };
     const roster = party.map(({ id, hp, maxHp, alive }) => `
       <div class="scr-result-hero${alive ? "" : " scr-result-fallen"}">
         <div class="scr-portrait"><img src="assets/out/${id}.png" alt=""></div>
@@ -273,7 +281,7 @@ DWR.Screens = (function () {
       <main class="scr-location scr-results-page">
         <header class="scr-statusbar"><h2 class="scr-h2">Итоги рейда</h2></header>
         <section class="scr-result-art">
-          <img src="${DWR.Assets.assetUrl("room" + (DWR.CONFIG.rooms.find(room => room.id === roomId)?.art ?? roomId) + ".jpg")}" alt="">
+          <img src="${DWR.Assets.roomUrl(room)}" alt="">
           <div>
             <div class="scr-location-meta">${DWR.CONFIG.locations[location].name}</div>
             <h3 class="scr-results-title scr-results-${reason}">${title}</h3>
@@ -289,12 +297,12 @@ DWR.Screens = (function () {
             <div class="scr-result-runes"><img src="assets/out/rune.png" alt=""><span><b>${runes}</b>Руны</span></div>
           </div>
           <div class="scr-result-roster" aria-label="Состояние отряда">${roster}</div>
-          <button id="scr-btn-to-location" class="btn btn-gold">${showPreview ? "К следующей локации" : "К подготовке"}</button>
+          <button id="scr-btn-to-location" class="btn btn-gold">${showNext ? "К следующей локации" : "К подготовке"}</button>
         </footer>
       </main>`;
     el.querySelector("#scr-btn-to-location").addEventListener("click", () => {
-      if (!showPreview) return returnToCamp();
-      selectedLocation = previewId;
+      if (!showNext) return returnToCamp();
+      selectedLocation = nextId;
       DWR.showScreen("location");
       showDemoMessage(document.getElementById("screen-location"));
     });

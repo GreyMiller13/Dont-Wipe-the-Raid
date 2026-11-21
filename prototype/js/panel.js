@@ -11,7 +11,8 @@ DWR.Panel = (function () {
   const RES_COLOR = { rage: "#eb9478", focus: "#91cd94", mana: "#a6b8ff" };
   const RES_NAME = { rage: "ярость", focus: "фокус", mana: "мана" };
   const LABEL = { powerStrike: "Удар", block: "Блок", multishot: "Мультивыстрел",
-    preciseShot: "Меткий", heal: "Лечение", fireball: "Фаербол", potion: "Зелье" };
+    preciseShot: "Меткий", heal: "Лечение", fireball: "Фаербол", potion: "Зелье",
+    dispel: "Рассеивание", massHeal: "Масс. лечение", fireTornado: "Смерч", sacrifice: "Жертвенность", bomb: "Бомба" };
 
   function slotRect(run, i) {
     const width = run.tempPanel.length * (SLOT + GAP) - GAP;
@@ -39,6 +40,7 @@ DWR.Panel = (function () {
   // Доступен ли слот для активации с учётом ресурса и состояния владельца.
   function slotUsable(run, id) {
     if (id === "potion") return run.sim.potionsLeft > 0;
+    if (id === "bomb") return DWR.Sim.canThrowBomb(run.sim);
     return DWR.Sim.skillStatus(run.sim, id).ready;
   }
 
@@ -58,8 +60,9 @@ DWR.Panel = (function () {
   function actionHint(skill, auto) {
     if (!skill) return "Нажмите или перетащите навык";
     if (skill.type === "auto") return "ЛКМ включает или отключает авто";
-    if (auto && skill.manualWhileAuto === false) return "ЛКМ отключает авто · Удар по ближайшему врагу";
+    if (auto && skill.manualWhileAuto === false) return "ЛКМ отключает авто · Цель — ближайший враг";
     const verb = skill.type === "instant" ? "ЛКМ применяет навык"
+      : skill.type === "ground" ? "Перетащите на поле боя"
       : "Перетащите на " + (["ally", "potion"].includes(skill.type) ? "героя" : "врага");
     return skill.auto ? "ЛКМ переключает авто · " + verb : verb;
   }
@@ -96,8 +99,9 @@ DWR.Panel = (function () {
         continue;
       }
       const skill = DWR.CONFIG.skills[id];
-      const timing = id === "potion" ? null : DWR.Sim.skillStatus(run.sim, id);
-      const color = id === "potion" ? "#ff938a" : RES_COLOR[skill.res];
+      const consumable = id === "potion" || id === "bomb";
+      const timing = consumable ? null : DWR.Sim.skillStatus(run.sim, id);
+      const color = id === "potion" ? "#ff938a" : id === "bomb" ? "#ffc084" : RES_COLOR[skill.res];
       ctx.globalAlpha = enabled ? 1 : 0.52;
       drawIcon(ctx, id, cx - 17, r.y + 5, 34);
       ctx.globalAlpha = 1;
@@ -113,9 +117,10 @@ DWR.Panel = (function () {
         ctx.textAlign = "center";
       }
       ctx.font = "600 12px Segoe UI"; ctx.fillStyle = enabled ? "#f5eee5" : "#aaa6b6";
-      ctx.fillText(LABEL[id], cx, r.y + 54);
+      ctx.fillText(LABEL[id], cx, r.y + 54, r.w - 8);
       ctx.font = "12px Segoe UI"; ctx.fillStyle = color;
       const detail = id === "potion" ? "×" + run.sim.potionsLeft
+        : id === "bomb" ? "×" + run.sim.bombsLeft
         : timing.frozen ? "Заморозка" : timing.stunned ? "Оглушение"
         : timing.left > 0 && skill.type !== "auto" ? cooldownLabel(timing.left) : timing.cost + " · " + RES_NAME[skill.res];
       ctx.fillText(detail, cx, r.y + 69);

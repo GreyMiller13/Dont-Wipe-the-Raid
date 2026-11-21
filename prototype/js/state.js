@@ -18,6 +18,7 @@ DWR.State = (function () {
       location1Done: false,
       cryptDone: false,
       wildsDone: false,
+      forgeDone: false,
       treasuresOpened: {},     // { id локации: открыт ли сундук за первое убийство }
       settings: { music: 0.7, sound: 0.8 }
     };
@@ -30,7 +31,13 @@ DWR.State = (function () {
       const raw = localStorage.getItem(KEY());
       if (raw) {
         const saved = JSON.parse(raw);
-        data = Object.assign(fresh(), saved);
+        const defaults = fresh();
+        const settings = { ...defaults.settings };
+        for (const key of Object.keys(settings)) {
+          const value = saved.settings?.[key];
+          if (Number.isFinite(value)) settings[key] = Math.min(1, Math.max(0, value));
+        }
+        data = Object.assign(defaults, saved, { settings });
         resizePanel();
         if (data.started && !Object.hasOwn(saved, "runes")) {
           // Сохраняем доступ к прежнему фаерболу и учитываем уже открытые сундуки.
@@ -149,6 +156,10 @@ DWR.State = (function () {
     return s;
   }
 
+  function bombStock(st = stats()) {
+    return hasSkill("bomb") ? DWR.CONFIG.skills.bomb.stock + (st.bombStock || 0) : 0;
+  }
+
   function resizePanel() {
     const { baseSlots, maxSlots } = DWR.CONFIG.skillBar;
     const length = Math.min(maxSlots, baseSlots + Math.max(0, Math.floor(stats().panelSlots || 0)));
@@ -158,7 +169,7 @@ DWR.State = (function () {
 
   return {
     get data() { return data; },
-    load, save, reset, locationCleared, locationUnlocked, completeLocation,
+    load, save, reset, locationCleared, locationUnlocked, completeLocation, bombStock,
     treasureUnopened, treasureAvailable, openTreasure,
     nodeDef, nodeCount, nodePrice, nodeCurrency, nodeUnlocked, nodeBuyable, buyNode, hasSkill, autoEnabled, setAuto,
     stats

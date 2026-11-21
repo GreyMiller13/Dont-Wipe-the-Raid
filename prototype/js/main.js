@@ -3,6 +3,7 @@
 window.DWR = window.DWR || {};
 
 (function () {
+  const themes = { menu: "menu", upgrade: "menu", panel: "menu", results: "raid" };
   let current = null;      // активный экран: 'menu' | 'location' | 'upgrade' | 'panel' | 'game' | 'results'
   let pendingRun = null;
   let lastTs = 0;
@@ -20,6 +21,8 @@ window.DWR = window.DWR || {};
                     upgrade: "Upgrade", panel: "PanelEditor", results: "Screens" }[id];
       if (mod && DWR[mod] && typeof DWR[mod].redraw === "function") DWR[mod].redraw();
     } else if (DWR.Run && DWR.Run.onEnter) DWR.Run.onEnter();
+    const theme = id === "game" ? DWR.Run?.state?.location : themes[id];
+    if (theme) DWR.Audio.setTheme(theme);
   };
   DWR.currentScreen = () => current;
 
@@ -40,6 +43,7 @@ window.DWR = window.DWR || {};
   DWR.showResults = function (result) {
     if (DWR.Screens && DWR.Screens.showResults) DWR.Screens.showResults(result);
     DWR.showScreen("results");
+    if (result.reason === "win" || result.reason === "wipe") DWR.Audio.play(result.reason === "win" ? "victory" : "defeat");
   };
 
   // Масштаб сцены под окно
@@ -59,6 +63,7 @@ window.DWR = window.DWR || {};
 
   // Инициализация
   DWR.State.load();
+  DWR.Audio.init(DWR.State.data.settings);
   fit();
   DWR.showScreen("menu");
   requestAnimationFrame(loop);

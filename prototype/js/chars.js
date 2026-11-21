@@ -7,7 +7,7 @@ DWR.Chars = (function () {
   const WALK_FRAMES = 16, FALL_FRAMES = 12;
   // За цикл опорная стопа проходит две длины шага в координатах карты.
   const WALK_CYCLE = { warrior: 48 / 72, goblinW: 36 / 64, goblinKing: 32 / 64, skeletonW: 40 / 74,
-    wolfhound: 0.84, werewolf: 0.6, lycan: 0.45 };
+    wolfhound: 0.84, werewolf: 0.6, lycan: 0.45, "orc-shield": 0.56, "orc-axe": 0.59, krag: 0.46 };
   const RANGER_CLIPS = { multishot: "ranger-multishot", preciseShot: "ranger-precise" };
   const FALLEN_BOUNDS = { warrior: [64, 105, 113], priest: [54, 97, 114], ranger: [54, 103, 114] };
   // Внешний контур goblinK.png в пикселях позволяет опереть упавшего короля на спину.
@@ -423,7 +423,22 @@ DWR.Chars = (function () {
     const pose = unit.pose || "idle";
     if (unit.kind === "warrior" && pose !== "dead" && drawWarrior(ctx, unit, pose, time)) return;
     const baseImage = A.img[unit.kind];
-    if (DWR.CONFIG.enemies[unit.kind]?.spritePoses) {
+    const enemy = DWR.CONFIG.enemies[unit.kind];
+    if (enemy?.motion) {
+      const kind = enemy.motion[unit.enraged ? 1 : 0];
+      const attack = pose !== "dead" && unit.attack;
+      const motion = !attack ? pose : attack.buffing || attack.guarding ? "cast" : "attack";
+      const { contact } = DWR.ForgeMotion;
+      const poseT = !attack ? unit.poseT : attack.hit
+        ? contact + (1 - contact) * clamp((attack.t - attack.windup) / attack.recovery)
+        : contact * clamp(attack.t / attack.windup);
+      ctx.save();
+      hitFlash(ctx, unit);
+      DWR.ForgeMotion.draw(ctx, A.img[kind], { ...unit, kind, pose: motion, poseT });
+      ctx.restore();
+      return;
+    }
+    if (enemy?.spritePoses) {
       drawCreature(ctx, unit, baseImage, time);
       return;
     }
@@ -469,6 +484,7 @@ DWR.Chars = (function () {
       bob = Math.abs(Math.sin(progress * Math.PI * 2)) * h * 0.022;
       lean = 0.07;
     } else if (pose === "hit") lean = -0.15;
+    else if (pose === "bomb") lean = 0.16 * Math.sin(progress * Math.PI * 2) * (1 - progress);
 
     ctx.save();
     ctx.translate(unit.x, unit.y + bob);

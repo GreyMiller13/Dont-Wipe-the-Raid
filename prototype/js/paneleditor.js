@@ -4,7 +4,7 @@ window.DWR = window.DWR || {};
 
 DWR.PanelEditor = (function () {
   const ACTIONS = { targeted: "Перетащить на врага", instant: "Нажать",
-    ally: "Перетащить на героя", auto: "ЛКМ включает авто", potion: "Перетащить на героя" };
+    ally: "Перетащить на героя", auto: "ЛКМ включает авто", potion: "Перетащить на героя", ground: "Перетащить на поле" };
   const RESOURCES = { rage: "ярость", focus: "фокус", mana: "мана" };
   let toastTimer = null;
 
@@ -110,7 +110,8 @@ DWR.PanelEditor = (function () {
   function redraw() {
     const S = DWR.State;
     const data = S.data;
-    const potionStock = S.stats().potionStock;
+    const stats = S.stats();
+    const stocks = { potion: stats.potionStock, bomb: S.bombStock(stats) };
     const icon = id => `<img class="pe-slot-icon" src="${DWR.Assets.iconUrl(id)}" alt="" draggable="false">`;
 
     const slots = data.panel.map((item, i) => {
@@ -122,7 +123,7 @@ DWR.PanelEditor = (function () {
         onclick="DWR.PanelEditor._remove(${i})" aria-label="Убрать: ${esc(sk.name)}">
         ${icon(item)}
         <span class="pe-slot-name">${esc(sk.name)}</span>
-        ${item === "potion" ? (potionStock ? `<span class="pe-slot-badge">×${potionStock}</span>` : '<span class="pe-slot-owner">Не изучено</span>')
+        ${Object.hasOwn(stocks, item) ? (stocks[item] ? `<span class="pe-slot-badge">×${stocks[item]}</span>` : '<span class="pe-slot-owner">Не изучено</span>')
           : `<span class="pe-slot-owner">${DWR.CONFIG.heroes[sk.owner].name}</span>`}
       </button>`;
     }).join("");
@@ -132,7 +133,7 @@ DWR.PanelEditor = (function () {
       .filter(id => S.hasSkill(id) && !data.panel.includes(id))
       .map(id => {
         const sk = DWR.CONFIG.skills[id];
-        const detail = id === "potion" ? `${ACTIONS.potion} · На старте ×${potionStock}`
+        const detail = Object.hasOwn(stocks, id) ? `${ACTIONS[sk.type]} · На старте ×${stocks[id]}`
           : `${sk.cost} · ${RESOURCES[sk.res]} · ${ACTIONS[sk.type]}${sk.auto && sk.type !== "auto" ? " или авто" : ""}`;
         return `<button class="pe-lib-item" draggable="true" data-drag-skill="${id}" onclick="DWR.PanelEditor._place('${id}')">
           ${icon(id)} <span><strong>${esc(sk.name)}</strong><small>${detail}</small></span>
