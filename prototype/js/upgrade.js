@@ -13,13 +13,18 @@ DWR.Upgrade = (function () {
   };
   const SKILL_ICONS = {
     wDmg: "blade", wTempo: "swift", wStride: "boot", wStrike: "sweep", powerStrikeHaste: "hourglass",
+    wDmgMastery: "criticalBlade", wBossGuard: "shield", healBarrier: "shield",
+    fireDmgMastery: "flame", rPrecisionMastery: "preciseShot", rAreaGuard: "armor",
     powerStrikeCost: "efficiency", powerStrikeRefund: "burst", blockDur: "shield", blockHaste: "hourglass",
     blockCost: "efficiency", blockHeal: "heart", wHp: "heart", wArmor: "armor", wRageKill: "flame", wRageRegen: "cycle",
     sacrificeDuration: "shield", sacrificeHaste: "hourglass", dispelCost: "efficiency", dispelHaste: "hourglass",
+    righteousFuryHeal: "heart", righteousFuryCost: "efficiency",
     healPow: "heal", healHaste: "hourglass", healCost: "efficiency", healWard: "shield", healOverflow: "heart",
     fireDmg: "fireball", fireballHaste: "hourglass", fireballCost: "spark", fireballBlast: "burst",
     massHealPower: "glow", massHealCost: "efficiency", massHealHaste: "hourglass",
-    fireTornadoDamage: "flame", fireTornadoCost: "efficiency", fireTornadoHaste: "hourglass", bombStock: "chest",
+    fireTornadoDamage: "flame", fireTornadoCost: "efficiency", fireTornadoHaste: "hourglass",
+    bombStock: "chest", bombDamage: "burst", bombRadius: "spread",
+    noiseBombStock: "chest", noiseBombRadius: "spread", noiseBombStun: "hourglass",
     fireballUnlock: "vessel", manaPool: "drop", manaRegen: "cycle", manaOnKill: "spark", manaOnRoom: "door",
     potionLuck: "vessel", potionStr: "flask", pHp: "heart", potionSquadHeal: "squad",
     rDmg: "arrow", rSpeed: "swift", rHp: "boot", rFan: "fan", multishotHaste: "hourglass",
@@ -43,10 +48,12 @@ DWR.Upgrade = (function () {
     shield: "M12 3l8 3v5q0 7-8 10-8-3-8-10V6zM12 7v9m-4-4h8",
     block: "M12 2l8 3v6q0 7-8 11-8-4-8-11V5zM12 6l4 2v3q0 4-4 7-4-3-4-7V8z",
     sacrifice: "M12 3l8 3v5q0 7-8 10-8-3-8-10V6zM8 12l3 3 5-6",
+    righteousFury: "M12 2c-4 6 0 7-4 9l-3-3c-3 7 1 13 7 13 6 0 9-6 5-12l-1 3c-1-4-4-5-4-10zM12 13v6m-3-3h6",
     dispel: "M4 19 18 5m-5 0h5v5M5 7l3 3m-5 4h4m10 3 3 3m-9-1v3",
     massHeal: "M10 4h4v6h6v4h-6v6h-4v-6H4v-4h6zM4 4v4m-2-2h4m14 12v4m-2-2h4",
     fireTornado: "M3 4c0 5 18 5 18 0M6 10c0 5 12 5 12 0M9 16c0 5 6 5 6 0m-3 1v5",
     bomb: "M16 8a7 7 0 1 1-10 10 7 7 0 0 1 10-10zm-2 0 2-3 4 3-2 3m1-4 3-4m-4 0h3",
+    noiseBomb: "M5 10l4-4 4 4v9l-4 3-4-3zM7 7V4h4v3m5 4q4 4 0 8m3-11q7 7 0 14",
     heart: "M12 20 4 12c-5-6 3-12 8-6 5-6 13 0 8 6zM6 11h3l2-2 2 4h3",
     glow: "M10 6h4v4h4v4h-4v4h-4v-4H6v-4h4zM12 2v1m9 9h1m-10 9v1M2 12h1M5 5l1 1m12 12 1 1m0-14-1 1M6 18l-1 1",
     heal: "M9 4h6v5h5v6h-5v5H9v-5H4V9h5z",
@@ -245,8 +252,10 @@ DWR.Upgrade = (function () {
         : S.nodeBuyable(id) ? "buyable" : "open";
       const icon = skillIcon(node, owner);
       const active = DWR.nodeHeroSkill(node) ? " up-socket-active" : "";
+      const tierLabel = node.tier === 2 ? " · Тир II" : "";
       return `<button class="up-vertex up-socket up-socket-${state}${active}" data-node="${id}" style="${style}"
-          title="${name} · ${label}" aria-label="${name} · ${label}" aria-pressed="${id === selectedId}">
+          title="${name}${tierLabel} · ${label}" aria-label="${name}${tierLabel} · ${label}" aria-pressed="${id === selectedId}">
+          ${node.tier === 2 ? '<span class="up-tier-mark" aria-hidden="true">II</span>' : ""}
           ${icon}${count > 0 ? `<small aria-hidden="true">${count}/${node.max}</small>` : ""}</button>`;
     }).join("");
   }
@@ -267,7 +276,7 @@ DWR.Upgrade = (function () {
         <span><img src="assets/out/${rune ? "rune" : "coin"}.png" alt="${rune ? "Руны навыков" : "Монеты"}">${price.toLocaleString("ru-RU")}</span></button>`;
     }
     return `<section class="up-detail" style="--branch:${theme.color};--branch-line:${theme.line}">
-      <div class="up-detail-name"><p class="up-detail-path">${escapeHtml(world.branches[owner].name)} · ${escapeHtml(group)}</p>
+      <div class="up-detail-name"><p class="up-detail-path">${escapeHtml(world.branches[owner].name)} · ${escapeHtml(group)}${node.tier === 2 ? " · Тир II" : ""}</p>
         <h3>${skillIcon(node, owner)}${escapeHtml(node.name)}</h3></div>
       <p class="up-detail-description">${escapeHtml(node.desc)}</p>
       <div class="up-detail-rank">
@@ -403,6 +412,29 @@ DWR.Upgrade = (function () {
     });
   }
 
+  function resetDialog() {
+    const { cost, invested, hasPurchases, affordable } = S.skillResetInfo();
+    return `<dialog class="scr-dialog" id="up-reset-dialog" aria-labelledby="up-reset-title" aria-describedby="up-reset-cost up-reset-refund">
+      <form method="dialog">
+        <header class="scr-dialog-header">
+          <h2 class="scr-h2" id="up-reset-title">Сбросить навыки?</h2>
+          <button class="btn scr-dialog-close" aria-label="Закрыть подтверждение"></button>
+        </header>
+        <div class="scr-confirm-description up-reset-description">
+          <p id="up-reset-cost">Стоимость сброса — <strong>${cost.toLocaleString("ru-RU")} монет</strong>.</p>
+          <p id="up-reset-refund">${hasPurchases
+            ? `Возврат вложений — монеты <strong>${invested.coins.toLocaleString("ru-RU")}</strong> · руны <strong>${invested.runes.toLocaleString("ru-RU")}</strong>.<br>Панель навыков вернётся к стартовой.`
+            : "В дереве пока нет покупок для сброса."}</p>
+          ${hasPurchases && !affordable ? "<p class='up-reset-shortfall'>На балансе недостаточно монет для оплаты сброса.</p>" : ""}
+        </div>
+        <footer class="scr-dialog-footer scr-confirm-actions">
+          <button class="btn" autofocus>Отмена</button>
+          <button class="btn btn-gold up-confirm-reset" type="button" ${hasPurchases && affordable ? "" : "disabled"}>Сбросить</button>
+        </footer>
+      </form>
+    </dialog>`;
+  }
+
   function redraw() {
     const previous = world?.skills.get(selectedId) ?? world?.root;
     world = layoutWorld();
@@ -435,6 +467,7 @@ DWR.Upgrade = (function () {
             </div>
             <span class="up-balance"><img src="assets/out/coin.png" alt=""> <b>${S.data.coins}</b> монет</span>
             <span class="up-balance up-balance-runes" title="Руны открывают активные навыки. Награда за первую победу в локации"><img src="assets/out/rune.png" alt="">Руны <b>${S.data.runes}</b></span>
+            <button class="btn up-reset" aria-haspopup="dialog" aria-controls="up-reset-dialog">Сброс навыков</button>
             <button class="btn up-back">Назад</button>
           </div>
         </header>
@@ -444,11 +477,22 @@ DWR.Upgrade = (function () {
           </div>
         </div>
         <div class="up-details">${renderDetails()}</div>
-      </main>`;
+      </main>
+      ${resetDialog()}`;
     drawLinks(el.querySelector(".up-links"));
     bindCamera(el);
     bindHelp(el.querySelector(".up-tree-page"));
     el.querySelector(".up-back").addEventListener("click", () => DWR.showScreen("location"));
+    const confirmReset = el.querySelector("#up-reset-dialog");
+    el.querySelector(".up-reset").addEventListener("click", () => confirmReset.showModal());
+    confirmReset.querySelector(".up-confirm-reset").addEventListener("click", () => {
+      if (!S.resetSkills()) return;
+      confirmReset.close();
+      selectedId = null;
+      camera.overview = true;
+      redraw();
+      el.querySelector(".up-reset").focus({ preventScroll: true });
+    });
     const details = el.querySelector(".up-details");
     el.querySelector(".up-world").addEventListener("click", event => {
       const socket = event.target.closest("[data-node]");

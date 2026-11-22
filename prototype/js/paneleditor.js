@@ -111,7 +111,7 @@ DWR.PanelEditor = (function () {
     const S = DWR.State;
     const data = S.data;
     const stats = S.stats();
-    const stocks = { potion: stats.potionStock, bomb: S.bombStock(stats) };
+    const stocks = { potion: stats.potionStock, bomb: S.bombStock(stats), noiseBomb: S.bombStock(stats, "noiseBomb") };
     const icon = id => `<img class="pe-slot-icon" src="${DWR.Assets.iconUrl(id)}" alt="" draggable="false">`;
 
     const slots = data.panel.map((item, i) => {
@@ -133,8 +133,10 @@ DWR.PanelEditor = (function () {
       .filter(id => S.hasSkill(id) && !data.panel.includes(id))
       .map(id => {
         const sk = DWR.CONFIG.skills[id];
-        const detail = Object.hasOwn(stocks, id) ? `${ACTIONS[sk.type]} · На старте ×${stocks[id]}`
-          : `${sk.cost} · ${RESOURCES[sk.res]} · ${ACTIONS[sk.type]}${sk.auto && sk.type !== "auto" ? " или авто" : ""}`;
+        const action = sk.auto && sk.type === "instant" ? "ПКМ применяет · ЛКМ переключает авто"
+          : ACTIONS[sk.type] + (sk.auto && sk.type !== "auto" ? " или авто" : "");
+        const detail = Object.hasOwn(stocks, id) ? `${action} · На старте ×${stocks[id]}`
+          : `${sk.cost} · ${RESOURCES[sk.res]} · ${action}`;
         return `<button class="pe-lib-item" draggable="true" data-drag-skill="${id}" onclick="DWR.PanelEditor._place('${id}')">
           ${icon(id)} <span><strong>${esc(sk.name)}</strong><small>${detail}</small></span>
           <span class="pe-add" aria-hidden="true">+</span>

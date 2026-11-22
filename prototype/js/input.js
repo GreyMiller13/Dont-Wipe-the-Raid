@@ -38,6 +38,10 @@ DWR.Input = (function () {
       toCanvas(e);
       DWR.Run.onClick(api.x, api.y);
     });
+    cv.addEventListener("contextmenu", e => {
+      toCanvas(e);
+      if (inGame() && DWR.Run.onContextMenu(api.x, api.y)) e.preventDefault();
+    });
     window.addEventListener("blur", () => {
       api.x = api.y = -1;
       if (inGame()) releasedDrag = DWR.Run.cancelDrag(api.x, api.y) || releasedDrag;

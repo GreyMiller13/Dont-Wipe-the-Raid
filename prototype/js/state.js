@@ -6,6 +6,31 @@ DWR.State = (function () {
   const KEY = () => DWR.CONFIG.saveKey;
   const nodes = new Map(Object.values(DWR.CONFIG.trees).flatMap(tree =>
     tree.branches.flatMap(branch => branch.nodes.map(node => [node.id, node]))));
+  // Цены для расчёта возврата в сохранениях без журнала покупок.
+  const legacySkillPrices = {
+    wDmg: [12, 1.25], wTempo: [29, 1.31], wCrit: [48, 1.5], wStride: [22, 1.3], wStrike: [34, 1.35],
+    powerStrikeHaste: [31, 1.35], powerStrikeRefund: [43, 1.35], blockDur: [25, 1.3], blockHaste: [34, 1.4],
+    blockHeal: [38, 1.4], sacrificeDuration: [150, 1.75], sacrificeHaste: [220, 1.65],
+    righteousFuryHeal: [280, 1.85], wHp: [10, 1.25], wArmor: [28, 1.35], wRageKill: [24, 1.3],
+    wRageRegen: [35, 1.35], healPow: [10, 1.25], healHaste: [32, 1.36], pCrit: [48, 1.5],
+    healWard: [43, 1.4], healOverflow: [32, 1.35], massHealHaste: [220, 1.7], fireDmg: [34, 1.32],
+    fireballHaste: [29, 1.35], fireballBlast: [48, 1.4], fireTornadoDamage: [180, 1.65],
+    fireTornadoHaste: [185, 1.7], dispelHaste: [95, 1.6], fireballUnlock: [230, 1.3], manaPool: [130, 1.85],
+    manaRegen: [25, 1.3], manaOnKill: [32, 1.4], manaOnRoom: [30, 1.35], potionStock: [15, 1.4],
+    potionLuck: [15, 1.3], potionStr: [30, 1.3], pHp: [24, 1.3], potionSquadHeal: [35, 1.4],
+    rDmg: [12, 1.25], rCrit: [55, 1.5], rSpeed: [18, 1.25], rHp: [27, 1.3], rFan: [32, 1.36],
+    multishotHaste: [32, 1.35], multishotCost: [95, 2.1], rExtraArrow: [46, 1.4], rPrecision: [30, 1.33],
+    preciseShotHaste: [36, 1.35], preciseBoss: [44, 1.4], rFocusKill: [25, 1.3], rFocusRegen: [35, 1.35],
+    bombStock: [85, 1.65], bombDamage: [105, 1.6], bombRadius: [85, 1.55], noiseBombStock: [95, 1.6],
+    noiseBombRadius: [90, 1.55], noiseBombStun: [140, 1.6], raidCoins: [16, 1.38], bossCoins: [30, 1.35],
+    chestCoins: [26, 1.35], roomCoins: [22, 1.35], raidVictoryCoins: [45, 1.4], lootReach: [20, 1.38],
+    autoCoins: [110, 1.3],
+  };
+  const legacyReductionPrices = [500, 4000, 4000];
+  const legacyReductions = new Set([
+    "powerStrikeCost", "blockCost", "righteousFuryCost", "healCost", "massHealCost",
+    "fireballCost", "fireTornadoCost", "dispelCost", "preciseShotCost"
+  ]);
 
   function fresh() {
     return {
@@ -13,12 +38,15 @@ DWR.State = (function () {
       coins: 0,
       runes: DWR.CONFIG.startingRunes,
       upgrades: {},            // { nodeId: куплено раз }
+      upgradeSpent: null,      // фактически вложенные монеты и руны
+      skillResets: 0,
       autoSkills: {},
       panel: Array.from({ length: DWR.CONFIG.skillBar.baseSlots }, (_, i) => i === 0 ? "heal" : null),
       location1Done: false,
       cryptDone: false,
       wildsDone: false,
       forgeDone: false,
+      riftDone: false,
       treasuresOpened: {},     // { id локации: открыт ли сундук за первое убийство }
       settings: { music: 0.7, sound: 0.8 }
     };
@@ -41,6 +69,7 @@ DWR.State = (function () {
         resizePanel();
         if (data.started && !Object.hasOwn(saved, "runes")) {
           // Сохраняем доступ к прежнему фаерболу и учитываем уже открытые сундуки.
+          data.upgradeSpent = treeInvestment();
           data.upgrades.fireball = 1;
           for (const id of Object.keys(DWR.CONFIG.locations)) {
             if (locationCleared(id) && !treasureUnopened(id)) data.runes++;
@@ -112,11 +141,53 @@ DWR.State = (function () {
     const def = nodeDef(id);
     return def && nodeUnlocked(id) && nodeCount(id) < def.max && data[nodeCurrency(id)] >= nodePrice(id);
   }
+
+  function treeInvestment() {
+    if (data.upgradeSpent) return data.upgradeSpent;
+    // В старых сохранениях известны ранги, но нет истории платежей.
+    const invested = { coins: 0, runes: 0 };
+    for (const node of nodes.values()) {
+      const count = nodeCount(node.id);
+      if (!count) continue;
+      const [base, mul] = legacySkillPrices[node.id] ?? [node.base, node.mul];
+      const prices = legacyReductions.has(node.id) ? legacyReductionPrices : node.prices;
+      const pricedNode = { ...node, base, mul, prices };
+      for (let rank = 1; rank <= count; rank++) {
+        invested[DWR.skillRankCurrency(pricedNode, rank)] += DWR.skillRankPrice(pricedNode, rank);
+      }
+    }
+    return invested;
+  }
+
+  function skillResetInfo() {
+    const cost = Math.ceil(100 * 1.25 ** data.skillResets);
+    const hasPurchases = [...nodes.keys()].some(id => id !== "heal" && nodeCount(id) > 0);
+    return { cost, invested: treeInvestment(), hasPurchases, affordable: data.coins >= cost };
+  }
+
+  function resetSkills() {
+    const { cost, invested, hasPurchases, affordable } = skillResetInfo();
+    if (!hasPurchases || !affordable) return false;
+    data.coins += invested.coins - cost;
+    data.runes += invested.runes;
+    data.upgrades = {};
+    data.upgradeSpent = { coins: 0, runes: 0 };
+    data.skillResets++;
+    data.panel = fresh().panel;
+    const { heal } = data.autoSkills;
+    data.autoSkills = heal === undefined ? {} : { heal };
+    save();
+    return true;
+  }
+
   function buyNode(id) {
     if (!nodeBuyable(id)) return false;
     const { stat, unlockSkill } = nodeDef(id).effect;
     const alreadyUnlocked = unlockSkill && hasSkill(unlockSkill);
-    data[nodeCurrency(id)] -= nodePrice(id);
+    const currency = nodeCurrency(id), price = nodePrice(id);
+    data.upgradeSpent = treeInvestment();
+    data[currency] -= price;
+    data.upgradeSpent[currency] += price;
     data.upgrades[id] = nodeCount(id) + 1;
     if (stat === "panelSlots") resizePanel();
     if (unlockSkill && !alreadyUnlocked && hasSkill(unlockSkill) && !data.panel.includes(unlockSkill)) {
@@ -156,8 +227,8 @@ DWR.State = (function () {
     return s;
   }
 
-  function bombStock(st = stats()) {
-    return hasSkill("bomb") ? DWR.CONFIG.skills.bomb.stock + (st.bombStock || 0) : 0;
+  function bombStock(st = stats(), id = "bomb") {
+    return hasSkill(id) ? DWR.CONFIG.skills[id].stock + (st[id + "Stock"] || 0) : 0;
   }
 
   function resizePanel() {
@@ -172,6 +243,7 @@ DWR.State = (function () {
     load, save, reset, locationCleared, locationUnlocked, completeLocation, bombStock,
     treasureUnopened, treasureAvailable, openTreasure,
     nodeDef, nodeCount, nodePrice, nodeCurrency, nodeUnlocked, nodeBuyable, buyNode, hasSkill, autoEnabled, setAuto,
+    skillResetInfo, resetSkills,
     stats
   };
 })();

@@ -291,7 +291,40 @@
 .scr-result-hero .scr-portrait img { width: 125px; left: -42px; top: -31px; }
 .scr-result-fallen .scr-portrait { filter: grayscale(1); }
 .scr-result-fallen span { color: #ff948b; }
-.scr-report .btn { grid-column: 4; white-space: nowrap; }
+.scr-result-actions { grid-column: 4; display: grid; gap: 7px; }
+.scr-result-actions .btn { min-height: 36px; white-space: nowrap; }
+.scr-result-actions .btn[aria-expanded="true"] { border-color: var(--gold); }
+.scr-stats-dialog {
+  inset: 0 0 var(--stats-bottom, 120px);
+  width: min(880px, calc(100vw - 30px));
+  max-height: calc(100dvh - var(--stats-bottom, 120px) - 24px);
+  overflow: auto;
+}
+.scr-stats-filter { display: flex; align-items: center; gap: 10px; margin: 15px 0 0; color: var(--muted); font-size: 14px; }
+.scr-stats-filter select { padding: 5px 8px; border: 1px solid #6d5844; border-radius: 6px; background: #151e24; color: var(--ink); font: inherit; }
+.scr-stats-party {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 222px), 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+.scr-stats-hero {
+  padding: 14px;
+  border: 1px solid var(--edge);
+  border-radius: 9px;
+  background: var(--bg);
+  font-size: 14px;
+}
+.scr-stats-hero h3 { margin: 0; color: var(--gold); font: 400 23px var(--display); }
+.scr-stats-hero h4 { margin: 13px 0 5px; color: var(--muted); font-size: 13px; font-weight: 600; }
+.scr-stats-hero b { color: var(--ink); white-space: nowrap; }
+.scr-stats-list { display: grid; grid-template-columns: 1fr auto; gap: 6px 9px; margin: 0; }
+.scr-stats-list dd { margin: 0; text-align: right; white-space: nowrap; }
+.scr-stats-list small, .scr-stats-received small, .scr-stats-death small { display: block; margin-top: 3px; color: var(--muted); }
+.scr-stats-empty, .scr-stats-survived { margin: 0; color: var(--muted); }
+.scr-stats-received { margin: 7px 0 12px; color: var(--muted); font-size: 13px; }
+.scr-stats-death, .scr-stats-survived { margin: 0; padding-top: 9px; border-top: 1px solid var(--edge); }
+.scr-stats-death { color: #ff948b; }
 @media (prefers-reduced-motion: reduce) {
   .btn { transition: none; }
   .scr-art-enter { animation: none; }

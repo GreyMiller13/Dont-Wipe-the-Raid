@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Анимации Разлома — Don't Wipe the Raid</title>
+  <link rel="icon" href="assets/out/coin.png">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="css/screens.css">
+  <style>
+    html, body { height: auto; min-height: 100%; overflow: auto; }
+    main { max-width: 1280px; margin: auto; padding: 24px; }
+    h1 { margin: 0 0 16px; font: 400 34px var(--display); }
+    .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; }
+    select { min-height: 40px; padding: 0 10px; border: 1px solid var(--edge); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
+    .controls button { min-height: 40px; }
+    canvas { display: block; width: 100%; height: auto; border-radius: 10px; background: var(--bg); }
+    .timeline { display: flex; align-items: center; gap: 12px; margin-top: 12px; color: var(--muted); }
+    input[type=range] { flex: 1; accent-color: var(--gold); }
+    #time { min-width: 12ch; text-align: right; font-variant-numeric: tabular-nums; }
+    #preview-status { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Анимации Разлома под горой</h1>
+    <div class="controls">
+      <label for="actor">Противник</label>
+      <select id="actor">
+        <option value="earth-elemental">Земляной элементаль</option>
+        <option value="fire-elemental">Огненный элементаль</option>
+        <option value="earth-colossus">Земляной босс</option>
+        <option value="fire-colossus">Огненный босс</option>
+        <option value="fused-colossus">Объединённый босс</option>
+      </select>
+      <label for="clip">Анимация</label>
+      <select id="clip"></select>
+      <button type="button" class="btn btn-gold" id="toggle">Пауза</button>
+      <button type="button" class="btn" id="restart">Сначала</button>
+    </div>
+    <canvas id="rift-stage" width="1280" height="590" aria-label="Предпросмотр анимации"></canvas>
+    <div class="timeline">
+      <label for="progress">Кадр</label>
+      <input type="range" id="progress" min="0" max="1000" value="0">
+      <output id="time" for="progress"></output>
+    </div>
+    <p role="status" id="preview-status" hidden></p>
+  </main>
+  <script src="js/rift-motion.js"></script>
+  <script>
+    "use strict";
+    const motion = DWR.RiftMotion;
+    const actorSelect = document.getElementById("actor");
+    const clipSelect = document.getElementById("clip");
+    const timeline = document.getElementById("progress");
+    const time = document.getElementById("time");
+    const toggle = document.getElementById("toggle");
+    const status = document.getElementById("preview-status");
+    const canvas = document.getElementById("rift-stage");
+    const ctx = canvas.getContext("2d");
+    const images = new Map();
+    const ground = 540;
+    const hall = {
+      earth: "rift-fissure-gallery",
+      fire: "rift-lava-bank",
+      fused: "rift-boss-cavern"
+    };
+    let kind, pose, duration, elapsed = 0, previous = 0, playing = true;
+
+    function imageFor(url) {
+      if (!images.has(url)) {
+        const image = new Image();
+        image.addEventListener("error", () => {
+          status.hidden = false;
+          status.textContent = "Не удалось загрузить " + url;
+        });
+        image.src = url;
+        images.set(url, image);
+      }
+      return images.get(url);
+    }
+
+    function play(value) {
+      playing = value;
+      toggle.textContent = value ? "Пауза" : "Продолжить";
+    }
+
+    function selectClip() {
+      pose = clipSelect.value;
+      const clip = motion.clips[pose];
+      duration = (motion.models[kind].boss && clip.bossDuration) || clip.duration;
+      if (pose === "walk") duration *= 4;
+      elapsed = 0;
+      play(true);
+    }
+
+    function selectActor() {
+      const lastClip = clipSelect.value;
+      kind = actorSelect.value;
+      const available = motion.clipNames(kind);
+      clipSelect.replaceChildren(...available.map(name => new Option(
+        name === "dead" && motion.models[kind].boss ? "Гибель босса" : motion.clips[name].label,
+        name
+      )));
+      if (available.includes(lastClip)) clipSelect.value = lastClip;
+      selectClip();
+    }
+
+    function shadow(x, y, width, alpha = .42) {
+      ctx.fillStyle = `rgba(5,4,8,${alpha})`;
+      ctx.beginPath();
+      ctx.ellipse(x, y + 2, width, 6, 0, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+
+    function drawTarget(target) {
+      const warrior = imageFor("assets/out/warrior.png");
+      shadow(target.x, ground, 21);
+      if (warrior.naturalWidth) {
+        const scale = target.h / 73;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(warrior, target.x - 84.5 * scale, target.y - 113 * scale,
+          warrior.naturalWidth * scale, warrior.naturalHeight * scale);
+      }
+    }
+
+    function frame(now) {
+      const model = motion.models[kind];
+      const clip = motion.clips[pose];
+      const hold = clip.loop ? 0 : .75;
+      if (playing) elapsed = (elapsed + Math.min((now - (previous || now)) / 1000, .05)) % (duration + hold);
+      previous = now;
+      const t = Math.min(elapsed / duration, 1);
+      const background = imageFor("assets/backgrounds/" + (model.boss ? hall.fused : hall[model.family]) + ".webp");
+      const atlas = imageFor("assets/out/" + motion.atlasFile(kind));
+      const x = pose === "walk" ? 950 - t * 330 : 798;
+      const h = model.h * 1.17;
+      const target = ["melee", "boulder", "fireball", "spike"].includes(pose)
+        ? { x: pose === "melee" ? x - h * .78 : 435, y: ground, h: 85 }
+        : null;
+      const exitX = x - 290;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (background.naturalWidth) ctx.drawImage(background, 0, 0);
+      if (target && pose !== "spike") drawTarget(target);
+      if (pose === "burrow") {
+        if (t < .35) shadow(x, ground, h * .27, .42 * (1 - t / .35));
+        if (t > .56) shadow(exitX, ground, h * .27, .42 * Math.min(1, (t - .56) / .32));
+      } else if (pose !== "merge" || t > .5) {
+        shadow(x, ground, h * (pose === "dead" ? .27 + t * .25 : .27));
+      }
+      motion.draw(ctx, atlas, { kind, x, y: ground, h, pose, poseT: pose === "walk" ? (t * 4) % 1 : t, target, exitX });
+      if (pose === "spike") {
+        const lift = Math.max(0, motion.spikeHeight(t, h) - target.h * .52);
+        drawTarget({ ...target, y: target.y - lift });
+      }
+      if (playing) timeline.value = Math.round(t * 1000);
+      time.textContent = `${(t * duration).toFixed(2)} / ${duration.toFixed(2)} с`;
+      requestAnimationFrame(frame);
+    }
+
+    actorSelect.addEventListener("change", selectActor);
+    clipSelect.addEventListener("change", selectClip);
+    toggle.addEventListener("click", () => play(!playing));
+    document.getElementById("restart").addEventListener("click", selectClip);
+    timeline.addEventListener("input", () => {
+      elapsed = Number(timeline.value) / 1000 * duration;
+      play(false);
+    });
+    selectActor();
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>

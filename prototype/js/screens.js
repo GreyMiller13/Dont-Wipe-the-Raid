@@ -179,12 +179,12 @@ DWR.Screens = (function () {
     const treasure = S.treasureAvailable(id);
     const room = DWR.CONFIG.rooms[location.rooms[0]];
     const isPreview = !!location.previewArt;
-    if (DWR.currentScreen() === "location") DWR.Audio.setTheme(isPreview ? "rest" : "menu");
     const art = location.previewArt ?? DWR.Assets.roomUrl(room);
     const cleared = S.locationCleared(id);
     const stats = S.stats(), panel = S.data.panel;
     const potions = S.hasSkill("potion") && panel.includes("potion") ? stats.potionStock : 0;
     const bombs = panel.includes("bomb") ? S.bombStock(stats) : 0;
+    const noiseBombs = panel.includes("noiseBomb") ? S.bombStock(stats, "noiseBomb") : 0;
     const arrow = (side, label, enabled) => `
       <button class="btn scr-carousel-arrow scr-carousel-${side}" aria-label="${label}" ${enabled ? "" : "disabled"}>
         <span aria-hidden="true"></span>
@@ -198,6 +198,7 @@ DWR.Screens = (function () {
             <span class="scr-camp-runes" title="Руны навыков"><img src="assets/out/rune.png" alt="">Руны <b>${S.data.runes}</b></span>
             ${potions > 0 ? `<span class="scr-camp-potions"><img src="${DWR.Assets.iconUrl("potion")}" alt="">Зелья <b>${potions}</b></span>` : ""}
             ${bombs > 0 ? `<span><img src="${DWR.Assets.iconUrl("bomb")}" alt="">Бомбы <b>${bombs}</b></span>` : ""}
+            ${noiseBombs > 0 ? `<span><img src="${DWR.Assets.iconUrl("noiseBomb")}" alt="">Шумовые бомбы <b>${noiseBombs}</b></span>` : ""}
             <button id="scr-btn-menu" class="btn">Меню</button>
           </div>
         </header>
@@ -261,16 +262,127 @@ DWR.Screens = (function () {
   }
 
   // ---------- Экран: итоги забега ----------
+  const combatNumbers = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 });
+  const heroAttacks = { sword: "Автоатака мечом", arrow: "Автовыстрел из лука" };
+  const enemyAttacks = {
+    melee: "Удар в ближнем бою", enemy: "Удар в ближнем бою", enemyArrow: "Выстрел из лука",
+    necroticOrb: "Шар некротической энергии", necroticBeam: "Некротический луч",
+    firebolt: "Огненный болт", bite: "Укус", claw: "Удар когтями", clawWave: "Волна от удара когтями",
+    axe: "Удар топором", smash: "Удар по земле", hammer: "Удар молотом", stunStrike: "Оглушающий удар молотом",
+    riftBoulder: "Бросок валуна", riftFireball: "Огненный шар элементаля"
+  };
+  const skillName = id => DWR.CONFIG.skills[id]?.name ?? heroAttacks[id] ?? id;
+  const combatNumber = value => combatNumbers.format(value);
+
+  function combatHeroCard(id, reports, selected) {
+    const damage = new Map(), healing = new Map();
+    let given = 0, received = 0, potion = 0, death = null, alreadyFallen = false;
+    for (const [index, report] of reports.entries()) {
+      const hero = report.heroes[id];
+      if (selected !== -1 && index !== selected) {
+        if (index < selected && hero.death) alreadyFallen = true;
+        continue;
+      }
+      for (const [skill, amount] of Object.entries(hero.damage)) {
+        const total = damage.get(skill) ?? { health: 0, armor: 0 };
+        total.health += amount.health;
+        total.armor += amount.armor;
+        damage.set(skill, total);
+      }
+      for (const [skill, amount] of Object.entries(hero.healing)) {
+        given += amount;
+        healing.set(skill, (healing.get(skill) ?? 0) + amount);
+      }
+      received += hero.healingReceived;
+      potion += hero.potionHealing;
+      if (hero.death) death = { ...hero.death, room: index + 1 };
+    }
+
+    const list = entries => entries.length ? `<dl class="scr-stats-list">${entries.join("")}</dl>`
+      : '<p class="scr-stats-empty">—</p>';
+    const damageRows = [...damage].sort((a, b) => (b[1].health + b[1].armor) - (a[1].health + a[1].armor))
+      .map(([skill, amount]) => `<dt>${skillName(skill)}</dt><dd>${combatNumber(amount.health)} ОЗ
+        ${amount.armor ? `<small>+ ${combatNumber(amount.armor)} брони</small>` : ""}</dd>`);
+    const healingRows = [...healing]
+      .map(([skill, amount]) => `<dt>${skillName(skill)}</dt><dd>${combatNumber(amount)} ОЗ</dd>`);
+    const attacker = DWR.CONFIG.enemies[death?.enemy]?.name ?? "Неизвестный источник";
+    const cause = DWR.CONFIG.effects[death?.ability]?.name ?? enemyAttacks[death?.ability] ?? "Урон";
+    const redirected = death?.redirectedFrom
+      ? `<small>Урон перенаправлен с героя «${DWR.CONFIG.heroes[death.redirectedFrom].name}»</small>` : "";
+    return `
+      <section class="scr-stats-hero">
+        <h3>${DWR.CONFIG.heroes[id].name}</h3>
+        <h4>Нанесено урона</h4>
+        ${list(damageRows)}
+        <h4>Лечение отряда <b>${combatNumber(given)} ОЗ</b></h4>
+        ${healingRows.length ? list(healingRows) : ""}
+        <p class="scr-stats-received">Восстановлено герою <b>${combatNumber(received)} ОЗ</b>
+          ${potion ? `<small>Из зелий ${combatNumber(potion)} ОЗ</small>` : ""}</p>
+        ${death
+          ? `<p class="scr-stats-death"><strong>Убийца — ${attacker}</strong><small>${cause}${selected === -1 ? ` · Комната ${death.room}` : ""}</small>${redirected}</p>`
+          : `<p class="scr-stats-survived">${alreadyFallen ? "Пал в предыдущей комнате" : "Остался в строю"}</p>`}
+      </section>`;
+  }
+
+  function combatDialog(reports) {
+    const options = reports.map(({ roomIndex }, index) => {
+      const room = DWR.CONFIG.rooms[roomIndex];
+      const name = room.chest ? "Сундук" : room.boss ? "Босс" : "";
+      return `<option value="${index}">Комната ${index + 1}${name ? ` · ${name}` : ""}</option>`;
+    }).join("");
+    return `<dialog class="scr-dialog scr-stats-dialog" id="scr-combat-stats" aria-labelledby="scr-stats-title">
+      <form method="dialog">
+        <header class="scr-dialog-header">
+          <h2 class="scr-h2" id="scr-stats-title">Статистика боя</h2>
+          <button class="btn scr-dialog-close" aria-label="Закрыть статистику" autofocus></button>
+        </header>
+        ${reports.length > 1 ? `<label class="scr-stats-filter">Отчёт
+          <select><option value="-1">Весь рейд</option>${options}</select>
+        </label>` : ""}
+        <div class="scr-stats-party"></div>
+      </form>
+    </dialog>`;
+  }
+
+  function bindCombatStats(page, reports) {
+    const trigger = page.querySelector("#scr-btn-combat-stats");
+    const dialog = page.querySelector("#scr-combat-stats");
+    const select = dialog.querySelector("select");
+    const roster = dialog.querySelector(".scr-stats-party");
+    const draw = () => {
+      const selected = Number(select?.value ?? -1);
+      roster.innerHTML = DWR.CONFIG.heroOrder.map(id => combatHeroCard(id, reports, selected)).join("");
+    };
+    // Оставляем кнопку видимой под модальным окном. Второй клик по ней попадает на фон и закрывает отчёт.
+    const position = () => {
+      dialog.style.setProperty("--stats-bottom", (innerHeight - trigger.getBoundingClientRect().top + 10) + "px");
+    };
+    bindDialogBackdrop(dialog);
+    trigger.addEventListener("click", () => {
+      position();
+      draw();
+      dialog.showModal();
+      trigger.setAttribute("aria-expanded", "true");
+      addEventListener("resize", position);
+    });
+    dialog.addEventListener("close", () => {
+      trigger.setAttribute("aria-expanded", "false");
+      removeEventListener("resize", position);
+    });
+    select?.addEventListener("change", draw);
+  }
+
   function renderResults(result) {
     const el = document.getElementById("screen-results");
     if (!el) return;
     const titles = { win: "Победа!", wipe: "Отряд пал…", retreat: "Отступление" };
     const reason = result?.reason || "retreat";
     const title = result?.treasureOnly && reason === "win" ? "Награда получена" : titles[result?.reason] || "Забег завершён";
-    const { coins = 0, runes = 0, roomsCleared = 0, roomsTotal = 0, roomId = 1, location = "dungeon", party = [] } = result || {};
+    const { coins = 0, runes = 0, roomsCleared = 0, roomsTotal = 0, roomId = 1, location = "dungeon",
+      party = [], combatReports = [] } = result || {};
     const locations = DWR.CONFIG.locations;
-    const nextId = location === "wilds" ? "forge" : "demoPreview";
-    const showNext = reason === "win" && location === locations[nextId].unlockAfter && S.locationUnlocked(nextId);
+    const nextId = Object.keys(locations).find(id => locations[id].unlockAfter === location);
+    const showNext = reason === "win" && locations[location].continueOnWin && S.locationUnlocked(nextId);
     const room = DWR.CONFIG.rooms.find(room => room.id === roomId) ?? { id: roomId };
     const roster = party.map(({ id, hp, maxHp, alive }) => `
       <div class="scr-result-hero${alive ? "" : " scr-result-fallen"}">
@@ -297,9 +409,14 @@ DWR.Screens = (function () {
             <div class="scr-result-runes"><img src="assets/out/rune.png" alt=""><span><b>${runes}</b>Руны</span></div>
           </div>
           <div class="scr-result-roster" aria-label="Состояние отряда">${roster}</div>
-          <button id="scr-btn-to-location" class="btn btn-gold">${showNext ? "К следующей локации" : "К подготовке"}</button>
+          <div class="scr-result-actions">
+            ${result ? '<button id="scr-btn-combat-stats" class="btn" aria-haspopup="dialog" aria-controls="scr-combat-stats" aria-expanded="false">Статистика боя</button>' : ""}
+            <button id="scr-btn-to-location" class="btn btn-gold">${showNext ? "К следующей локации" : "К подготовке"}</button>
+          </div>
         </footer>
-      </main>`;
+      </main>
+      ${result ? combatDialog(combatReports) : ""}`;
+    if (result) bindCombatStats(el, combatReports);
     el.querySelector("#scr-btn-to-location").addEventListener("click", () => {
       if (!showNext) return returnToCamp();
       selectedLocation = nextId;

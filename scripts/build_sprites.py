@@ -312,11 +312,34 @@ SHEETS = {
     ]),
 }
 
-# Формат кадров для chars.js: рост в стойке 72px, опора по центру и 3px от нижнего края.
+# Логический формат chars.js: рост в стойке 72px, опора по центру и 3px от нижнего края.
 FRAME_SIZE = (152, 116)
 BODY_HEIGHT = 72
 FRAME_BASE = FRAME_SIZE[1] - 3
+HERO_COMBAT_DENSITY = 2
 COMBAT_EFFECTS_SCALE = 0.135
+
+
+def scaled_points(points, density):
+    return [(x * density, y * density) for x, y in points]
+
+
+def place_hero_frame(piece, bounds, anchor, source_height, density, name, index):
+    x, y, right, bottom = bounds
+    anchor_x, anchor_y = anchor
+    scale = BODY_HEIGHT * density / source_height
+    size = tuple(length * density for length in FRAME_SIZE)
+    resized = piece.resize((round((right - x) * scale), round((bottom - y) * scale)),
+                           Image.Resampling.BOX)
+    dx = size[0] // 2 + round((x - anchor_x) * scale)
+    dy = FRAME_BASE * density + round((y - anchor_y) * scale)
+    left, top, end_x, end_y = resized.getbbox()
+    if not (0 < dx + left and dx + end_x < size[0] and
+            0 < dy + top and dy + end_y < size[1]):
+        raise ValueError(f"{name}: кадр {index} выходит за канву")
+    frame = Image.new("RGBA", size)
+    frame.paste(resized, (dx, dy))
+    return frame
 
 
 def magic_alpha(rgb):
@@ -362,23 +385,32 @@ def save_priest_release(frame):
     # В момент вылета оставляем горячий наконечник, сам шар рисуется как снаряд.
     release = frame.copy()
     painter = ImageDraw.Draw(release)
-    painter.polygon([(54, 17), (118, 17), (118, 46), (103, 45), (102, 39),
-                     (97, 39), (94, 46), (86, 45), (85, 39), (72, 40),
-                     (69, 44), (65, 48), (54, 53)], fill=(0, 0, 0, 0))
-    painter.rectangle((98, 38, 100, 40), fill="#ed854e")
-    painter.point((99, 38), fill="#ffe5ab")
+    density = HERO_COMBAT_DENSITY
+    painter.polygon(scaled_points([(54, 17), (118, 17), (118, 46), (103, 45), (102, 39),
+                                   (97, 39), (94, 46), (86, 45), (85, 39), (72, 40),
+                                   (69, 44), (65, 48), (54, 53)], density), fill=(0, 0, 0, 0))
+    hero_rect(painter, 98, 38, 100, 40, "#ed854e")
+    hero_rect(painter, 99, 38, 99, 38, "#ffe5ab")
     release.save(os.path.join(OUT, "priest-release.png"))
     manifest["sprites"]["priest-release"] = dict(zip(("w", "h"), release.size))
 
 
+def hero_rect(draw, left, top, right, bottom, color):
+    density = HERO_COMBAT_DENSITY
+    draw.rectangle((left * density, top * density, (right + 1) * density - 1, (bottom + 1) * density - 1),
+                   fill=color)
+
+
 def bow_flash(draw, x, y, width, height, color):
-    draw.polygon([(x - width, y), (x - 2, y - 2), (x, y - height), (x + 2, y - 2),
-                  (x + width, y), (x + 2, y + 2), (x, y + height), (x - 2, y + 2)], fill=color)
-    draw.rectangle((x - 1, y - 1, x + 1, y + 1), fill="#fff9db")
+    points = [(x - width, y), (x - 2, y - 2), (x, y - height), (x + 2, y - 2),
+              (x + width, y), (x + 2, y + 2), (x, y + height), (x - 2, y + 2)]
+    draw.polygon(scaled_points(points, HERO_COMBAT_DENSITY), fill=color)
+    hero_rect(draw, x - 1, y - 1, x + 1, y + 1, "#fff9db")
 
 
 def save_ranger_skills():
     # Отдельные листы используют тот же масштаб и линию подошв, что и автоатака.
+    density = HERO_COMBAT_DENSITY
     for name, order in [("ranger-multishot", (1, 2, 3, 4, 5, 6)), ("ranger-precise", (1, 2, 4, 4, 5, 6))]:
         multi = name == "ranger-multishot"
         color = "#b4e583" if multi else "#77ddff"
@@ -390,19 +422,19 @@ def save_ranger_skills():
                 if multi:
                     x, y = (88, 77) if i == 3 else (99, 59)
                     for spread in (-5, 0, 5):
-                        brush.line([(x - 10, y), (x + 12, y + spread)], fill=color, width=1)
-                        brush.point((x + 13, y + spread), fill="#fff9db")
+                        brush.line(scaled_points([(x - 10, y), (x + 12, y + spread)], density), fill=color, width=density)
+                        hero_rect(brush, x + 13, y + spread, x + 13, y + spread, "#fff9db")
                 else:
-                    brush.line([(76, 59), (108, 59)], fill=color, width=2)
+                    brush.line(scaled_points([(76, 59), (108, 59)], density), fill=color, width=2 * density)
                     bow_flash(brush, 99, 59, 7 if i == 3 else 11, 4 if i == 3 else 6, color)
             if i == 5:
                 bow_flash(brush, 97, 59, 15 if multi else 22, 10 if multi else 6, color)
                 for x, y in ([(112, 46), (117, 55), (113, 69), (123, 63)] if multi else
                              [(115, 56), (123, 59), (109, 66), (104, 50)]):
-                    brush.point((x, y), fill="#fff9db")
+                    hero_rect(brush, x, y, x, y, "#fff9db")
             if i == 6:
-                brush.point((112, 62), fill=color)
-                brush.point((120, 65), fill=color)
+                hero_rect(brush, 112, 62, 112, 62, color)
+                hero_rect(brush, 120, 65, 120, 65, color)
             fn = f"{name}-f{i}.png"
             frame.save(os.path.join(OUT, fn))
             files.append(fn)
@@ -433,9 +465,8 @@ for name, (fn, source_height, poses) in SHEETS.items():
         alpha[neutral & (rgb[:, :, 0] <= 57)] = 0
     elif name.startswith("priest"):
         alpha = magic_alpha(rgb)
-    scale = BODY_HEIGHT / source_height
     files = []
-    for i, ((anchor_x, anchor_y), outline) in enumerate(poses, 1):
+    for i, (anchor, outline) in enumerate(poses, 1):
         if outline is None:
             frame = first
         else:
@@ -445,21 +476,14 @@ for name, (fn, source_height, poses) in SHEETS.items():
             x, y, right, bottom = bounds
             mask = np.asarray(region)[y:bottom, x:right]
             rgba = np.dstack([rgb[y:bottom, x:right], np.minimum(alpha[y:bottom, x:right], mask)])
-            piece = Image.fromarray(rgba).resize(
-                (round((right - x) * scale), round((bottom - y) * scale)), Image.Resampling.BOX
-            )
-            dx = FRAME_SIZE[0] // 2 + round((x - anchor_x) * scale)
-            dy = FRAME_BASE + round((y - anchor_y) * scale)
-            left, top, end_x, end_y = piece.getbbox()
-            if not (0 < dx + left and dx + end_x < FRAME_SIZE[0] and
-                    0 < dy + top and dy + end_y < FRAME_SIZE[1]):
-                raise ValueError(f"{name}: кадр {i} выходит за канву")
-            frame = Image.new("RGBA", FRAME_SIZE)
-            frame.paste(piece, (dx, dy))
+            piece = Image.fromarray(rgba)
+            frame = place_hero_frame(piece, bounds, anchor, source_height, HERO_COMBAT_DENSITY, name, i)
         if i == 1:
             first = frame
             if name in ("warrior", "ranger", "priest"):
-                frame.save(os.path.join(OUT, name + ".png"))
+                # Портреты и демонстрационные экраны используют прежний общий формат.
+                portrait = place_hero_frame(piece, bounds, anchor, source_height, 1, name, i)
+                portrait.save(os.path.join(OUT, name + ".png"))
                 manifest["sprites"][name] = dict(zip(("w", "h"), FRAME_SIZE))
         if name == "priest-cast" and i == 4:
             save_priest_release(frame)
@@ -467,7 +491,7 @@ for name, (fn, source_height, poses) in SHEETS.items():
         frame.save(os.path.join(OUT, f))
         files.append(f)
     manifest["frames"][name] = files
-    print(f"{name}: {len(files)} кадров, опора y={FRAME_BASE}")
+    print(f"{name}: {len(files)} кадров, опора y={FRAME_BASE * HERO_COMBAT_DENSITY}")
     if name == "priest-cast":
         save_fireball_effects(rgb, alpha)
 
@@ -481,9 +505,10 @@ def fill_warrior_pinholes(sprite):
     labels, _ = label_runs(pixels[:, :, 3] < 150)
     counts = np.bincount(labels.ravel())
     border = np.unique(np.r_[labels[0], labels[-1], labels[:, 0], labels[:, -1]])
-    holes = (labels > 0) & (counts[labels] <= 3) & ~np.isin(labels, border)
+    radius = HERO_COMBAT_DENSITY
+    holes = (labels > 0) & (counts[labels] <= 3 * radius ** 2) & ~np.isin(labels, border)
     for y, x in zip(*np.nonzero(holes)):
-        window = pixels[y - 1:y + 2, x - 1:x + 2]
+        window = pixels[max(0, y - radius):y + radius + 1, max(0, x - radius):x + radius + 1]
         opaque = window[window[:, :, 3] >= 150]
         if opaque.size:
             pixels[y, x, :3] = np.median(opaque[:, :3], axis=0)
@@ -492,43 +517,46 @@ def fill_warrior_pinholes(sprite):
 
 
 def warrior_limb(source, outline, start, end):
+    density = HERO_COMBAT_DENSITY
     mask = Image.new("L", source.size)
-    ImageDraw.Draw(mask).polygon(outline, fill=255)
+    ImageDraw.Draw(mask).polygon(scaled_points(outline, density), fill=255)
     cut = Image.new("RGBA", source.size)
     cut.paste(source, mask=mask)
-    x, y = start
-    angle = math.atan2(end[1] - y, end[0] - x)
+    x, y = (coordinate * density for coordinate in start)
+    angle = math.atan2(end[1] - start[1], end[0] - start[0])
     sin, cos = math.sin(angle), math.cos(angle)
-    # Накладываем руку в горизонтальной системе координат с опорой (3, 6).
-    return cut.transform((18, 12), Image.Transform.AFFINE,
-                         (cos, -sin, x - 3 * cos + 6 * sin,
-                          sin, cos, y - 3 * sin - 6 * cos),
+    # Опора (3, 6) задана в логических координатах рига.
+    return cut.transform((18 * density, 12 * density), Image.Transform.AFFINE,
+                         (cos, -sin, x + density * (-3 * cos + 6 * sin),
+                          sin, cos, y + density * (-3 * sin - 6 * cos)),
                          Image.Resampling.BICUBIC)
 
 
 def save_warrior_rig():
     # Выделяем части руки из оригинальных кадров, сохраняя свет и тени спрайта.
+    density = HERO_COMBAT_DENSITY
     source = Image.open(os.path.join(OUT, "warrior-f3.png")).convert("RGBA")
     idle = Image.open(os.path.join(OUT, "warrior-f1.png")).convert("RGBA")
     raised = Image.open(os.path.join(OUT, "warrior-f2.png")).convert("RGBA")
     body = source.copy()
     draw = ImageDraw.Draw(body)
     clear = (0, 0, 0, 0)
-    draw.polygon([(67, 65), (74, 65), (76, 69), (81, 69), (86, 71), (86, 74),
-                  (83, 76), (77, 75), (72, 74), (68, 72), (66, 70)], fill=clear)
-    draw.rectangle((94, 63, 116, 71), fill=clear)
-    for y in range(68, 75):
-        for x in range(85, 94):
-            body.putpixel((x, y), source.getpixel((x, 84)))
-    # Восстанавливаем скрытую под рукой кожу доспеха из позы с поднятым мечом.
+    draw.polygon(scaled_points([(67, 65), (74, 65), (76, 69), (81, 69), (86, 71), (86, 74),
+                                (83, 76), (77, 75), (72, 74), (68, 72), (66, 70)], density), fill=clear)
+    draw.rectangle(scaled_points([(94, 63), (117, 72)], density), fill=clear)
+    shield_strip = source.crop(tuple(p * density for p in (85, 84, 94, 85)))
+    shield_patch = shield_strip.resize((9 * density, 7 * density), Image.Resampling.NEAREST)
+    body.paste(shield_patch, (85 * density, 68 * density))
+    # Восстанавливаем скрытую под рукой часть доспеха из позы с поднятым мечом.
     armor = Image.new("RGBA", source.size, "#3b3134")
     # Берём центральную часть нагрудника, не захватывая кисть на щите.
     texture = raised.transform(source.size, Image.Transform.AFFINE,
-                               (0.42, 0, 71 - 67 * 0.42, 0, 1, 0), Image.Resampling.BILINEAR)
+                               (0.42, 0, (71 - 67 * 0.42) * density, 0, 1, 0), Image.Resampling.BILINEAR)
     armor.alpha_composite(texture)
     repair = Image.new("L", source.size)
-    ImageDraw.Draw(repair).polygon([(68, 62), (76, 62), (84, 68), (85, 74),
-                                    (83, 77), (72, 76), (69, 73), (68, 69), (67, 66)], fill=255)
+    ImageDraw.Draw(repair).polygon(scaled_points([(68, 62), (76, 62), (84, 68), (85, 74),
+                                                  (83, 77), (72, 76), (69, 73), (68, 69), (67, 66)],
+                                                 density), fill=255)
     armor.putalpha(repair)
     armor.alpha_composite(body)
     body = fill_warrior_pinholes(armor)
@@ -539,14 +567,14 @@ def save_warrior_rig():
                                  (83, 72), (83, 74), (82, 76), (77, 75), (71, 73),
                                  (68, 71)], (70.5, 70.2), (81.5, 73))
 
-    blade = Image.new("RGBA", (36, 11))
+    blade = Image.new("RGBA", (36 * density, 11 * density))
     draw = ImageDraw.Draw(blade)
-    draw.polygon([(9, 4), (29, 3), (35, 4), (30, 7), (9, 7)], fill="#4d4f5b")
-    draw.polygon([(9, 4), (29, 3), (34, 4), (28, 5), (10, 5)], fill="#d3d0ce")
-    draw.line((10, 6, 29, 5), fill="#9a9da6", width=1)
-    draw.line((1, 5, 7, 5), fill="#584744", width=2)
-    draw.line((6, 2, 8, 8), fill="#8b7880", width=2)
-    draw.point((6, 2), fill="#c4bbc3")
+    draw.polygon(scaled_points([(9, 4), (29, 3), (35, 4), (30, 7), (9, 7)], density), fill="#4d4f5b")
+    draw.polygon(scaled_points([(9, 4), (29, 3), (34, 4), (28, 5), (10, 5)], density), fill="#d3d0ce")
+    draw.line(scaled_points([(10, 6), (29, 5)], density), fill="#9a9da6", width=density)
+    draw.line(scaled_points([(1, 5), (7, 5)], density), fill="#584744", width=2 * density)
+    draw.line(scaled_points([(6, 2), (8, 8)], density), fill="#8b7880", width=2 * density)
+    draw.rectangle((6 * density, 2 * density, 7 * density - 1, 3 * density - 1), fill="#c4bbc3")
 
     for name, sprite in [("warrior-body", body), ("warrior-upper", upper), ("warrior-fore", fore), ("warrior-blade", blade)]:
         sprite.save(os.path.join(OUT, name + ".png"))
@@ -558,6 +586,7 @@ save_warrior_rig()
 # --- Циклы шага: правка ног по опорным точкам исходных спрайтов ------------------------------
 
 WALK_FRAMES = 16
+WARRIOR_WALK_COLUMNS = 8
 WALK_RIGS = {
     # Длина шага, высота стопы в переносе и две ноги: контур, бедро, колено, лодыжка, подошва.
     "warrior": ("warrior-body", 12, 6, [
@@ -587,7 +616,7 @@ WALK_RIGS = {
 }
 
 
-def stride_leg(leg, joints, stride, lift, phase, bob):
+def stride_leg(leg, joints, stride, lift, phase, bob, density):
     hip, knee, ankle, floor = joints
     if phase < 0.5:
         foot_x = hip[0] + stride * (1 - 4 * phase)
@@ -597,9 +626,9 @@ def stride_leg(leg, joints, stride, lift, phase, bob):
         foot_x = hip[0] + stride * (-1 + 2 * (transfer * transfer * (3 - 2 * transfer)))
         foot_lift = lift * math.sin(transfer * math.pi)
 
-    source_y = [hip[1] - 6, hip[1], knee[1], ankle[1], floor]
+    source_y = [hip[1] - 6 * density, hip[1], knee[1], ankle[1], floor]
     target_y = np.array(source_y, dtype=float) + [bob, bob, -foot_lift * 0.47, -foot_lift, -foot_lift]
-    knee_x = hip[0] + (foot_x - hip[0]) * 0.50 + 1 + foot_lift * 0.45
+    knee_x = hip[0] + (foot_x - hip[0]) * 0.50 + density + foot_lift * 0.45
     shifts = [0, 0, knee_x - knee[0], foot_x - ankle[0], foot_x - ankle[0]]
 
     pixels = np.asarray(leg)
@@ -615,6 +644,8 @@ def stride_leg(leg, joints, stride, lift, phase, bob):
 def save_walk_clips():
     for name, (source, stride, lift, rig) in WALK_RIGS.items():
         base = Image.open(os.path.join(OUT, source + ".png")).convert("RGBA")
+        density = HERO_COMBAT_DENSITY if name == "warrior" else 1
+        columns = WARRIOR_WALK_COLUMNS if name == "warrior" else WALK_FRAMES
         pad_x, pad_y = (0, 0) if name == "warrior" else (17, 4)
         size = (base.width + pad_x * 2, base.height + pad_y)
         torso = Image.new("RGBA", size)
@@ -622,23 +653,24 @@ def save_walk_clips():
         legs = []
         for outline, hip, knee, ankle, floor in rig:
             cut = Image.new("L", size)
-            ImageDraw.Draw(cut).polygon([(x + pad_x, y + pad_y) for x, y in outline], fill=255)
+            ImageDraw.Draw(cut).polygon([(x * density + pad_x, y * density + pad_y) for x, y in outline], fill=255)
             leg = Image.new("RGBA", size)
             leg.paste(torso, mask=cut)
             torso.paste((0, 0, 0, 0), mask=cut)
-            joints = [tuple((x + pad_x, y + pad_y)) for x, y in (hip, knee, ankle)]
-            legs.append((leg, (*joints, floor + pad_y)))
-        atlas = Image.new("RGBA", (size[0] * WALK_FRAMES, size[1]))
+            joints = [(x * density + pad_x, y * density + pad_y) for x, y in (hip, knee, ankle)]
+            legs.append((leg, (*joints, floor * density + pad_y)))
+        atlas = Image.new("RGBA", (size[0] * columns, size[1] * (WALK_FRAMES // columns)))
         for i in range(WALK_FRAMES):
             phase = i / WALK_FRAMES
-            bob = -round(1.4 * abs(math.sin(phase * math.pi * 2)))
+            bob = -round(1.4 * abs(math.sin(phase * math.pi * 2))) * density
             frame = Image.new("RGBA", size)
             for side, (leg, joints) in enumerate(legs):
-                frame.alpha_composite(stride_leg(leg, joints, stride, lift, (phase + side * 0.5) % 1, bob))
+                frame.alpha_composite(stride_leg(leg, joints, stride * density, lift * density,
+                                                 (phase + side * 0.5) % 1, bob, density))
             frame.alpha_composite(torso, (0, bob))
             if name == "warrior":
                 frame = fill_warrior_pinholes(frame)
-            atlas.alpha_composite(frame, (i * size[0], 0))
+            atlas.alpha_composite(frame, (i % columns * size[0], i // columns * size[1]))
         atlas.save(os.path.join(OUT, name + "-walk.png"))
 
 
@@ -807,6 +839,20 @@ def save_skill_icons():
             ("#ad2946", [(3, 10), (7, 8), (12, 10), (12, 12), (10, 14), (5, 14), (3, 12)]),
             ("#ee4d53", [(3, 10), (6, 9), (9, 10), (9, 12), (7, 13), (4, 12)]),
             ("#ffe0ca", [(4, 9), (5, 9), (5, 11), (4, 11)]),
+        ],
+        "righteousFury": [
+            (outline, [(8, 0), (10, 5), (12, 4), (15, 9), (14, 13), (11, 15), (4, 15), (1, 12), (1, 8), (4, 9), (5, 4)]),
+            ("#cb6b38", [(8, 2), (9, 7), (12, 6), (14, 10), (12, 13), (9, 14), (4, 14), (2, 11), (3, 9), (5, 11), (6, 6)]),
+            ("#ffcc71", [(7, 6), (9, 8), (11, 8), (13, 10), (11, 13), (5, 13), (4, 11), (6, 10)]),
+            ("#fff4c3", [(7, 8), (8, 8), (8, 10), (10, 10), (10, 11), (8, 11), (8, 13), (7, 13), (7, 11), (5, 11), (5, 10), (7, 10)]),
+        ],
+        "noiseBomb": [
+            (outline, [(4, 1), (8, 1), (8, 4), (11, 7), (11, 12), (8, 15), (3, 15), (0, 12), (0, 7), (3, 4)]),
+            ("#5484a7", [(4, 4), (7, 4), (10, 7), (10, 12), (8, 14), (3, 14), (1, 12), (1, 7)]),
+            ("#a7e6f6", [(4, 5), (7, 5), (8, 7), (3, 7), (3, 12), (2, 11), (2, 8)]),
+            ("#e1f8fb", [(4, 2), (7, 2), (7, 3), (4, 3)]),
+            ("#b7eeff", [(11, 5), (12, 5), (14, 7), (14, 11), (12, 13), (11, 13), (13, 10), (13, 8)]),
+            ("#6cafd6", [(13, 3), (15, 5), (15, 7), (14, 6), (14, 5), (12, 3)]),
         ],
     }
     for skill, layers in icons.items():

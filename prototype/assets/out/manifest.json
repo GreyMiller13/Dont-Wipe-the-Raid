@@ -42,8 +42,8 @@
    "h": 116
   },
   "priest-release": {
-   "w": 152,
-   "h": 116
+   "w": 304,
+   "h": 232
   },
   "arrow-multishot": {
    "w": 48,
@@ -54,20 +54,20 @@
    "h": 14
   },
   "warrior-body": {
-   "w": 152,
-   "h": 116
+   "w": 304,
+   "h": 232
   },
   "warrior-upper": {
-   "w": 18,
-   "h": 12
+   "w": 36,
+   "h": 24
   },
   "warrior-fore": {
-   "w": 18,
-   "h": 12
+   "w": 36,
+   "h": 24
   },
   "warrior-blade": {
-   "w": 36,
-   "h": 11
+   "w": 72,
+   "h": 22
   },
   "chest-closed": {
    "w": 68,

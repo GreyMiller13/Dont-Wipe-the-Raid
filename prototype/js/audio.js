@@ -43,6 +43,7 @@ DWR.Audio = (function () {
     tornado: [air(630, 1500, 0.78, 0.23), air(1200, 710, 0.56, 0.16, 0.18), tone(430, 520, 0.62, 0.14, 0.09, "reed")],
     bombThrow: [air(930, 1670, 0.24, 0.22), tone(470, 415, 0.15, 0.14)],
     bombImpact: [air(1540, 620, 0.37, 0.34), tone(410, 240, 0.33, 0.25, 0.022)],
+    noiseBombImpact: [air(1860, 980, 0.24, 0.26), tone(900, 630, 0.27, 0.16, 0.025, "glass")],
     howl: [tone(440, 570, 0.72, 0.25, 0, "reed"), tone(645, 405, 0.59, 0.15, 0.14, "reed"), air(810, 1140, 0.46, 0.13, 0.12)],
     warCry: [tone(550, 410, 0.36, 0.25, 0, "reed"), air(840, 1300, 0.33, 0.20, 0.045)],
     furnaceCharge: [air(600, 1290, 0.78, 0.2), tone(398, 570, 0.82, 0.19, 0.15, "reed")],
@@ -50,6 +51,8 @@ DWR.Audio = (function () {
     armorBreak: [tone(940, 620, 0.33, 0.20, 0, "glass"), air(1300, 850, 0.29, 0.20, 0.05)],
     sacrifice: [tone(470, 640, 0.47, 0.20), tone(705, 900, 0.42, 0.15, 0.13)],
     summon: [tone(390, 475, 0.64, 0.20, 0, "reed"), tone(600, 545, 0.54, 0.16, 0.17, "glass")],
+    teleport: [air(520, 1550, 1.12, 0.19), tone(415, 620, 0.76, 0.18, 0.1, "reed"),
+      tone(930, 1450, 0.46, 0.19, 0.85, "glass"), air(970, 510, 0.35, 0.12, 1.28)],
     beam: [air(640, 1300, 0.44, 0.25), tone(420, 360, 0.44, 0.21, 0, "reed")],
     down: [air(920, 520, 0.24, 0.17), tone(310, 240, 0.23, 0.20)]
   };
@@ -59,7 +62,8 @@ DWR.Audio = (function () {
     dungeon: "whispers-in-the-fog.mp3",
     crypt: "cathedral-in-the-forest.mp3",
     wilds: "forest-whisper-theme.mp3",
-    forge: "evening-of-chaos.mp3"
+    forge: "determined-pursuit.mp3",
+    rift: "evening-of-chaos.mp3"
   };
   const music = new Map(), samples = new Map(), played = new Map();
   const clamp = value => Math.min(1, Math.max(0, value));
@@ -84,7 +88,7 @@ DWR.Audio = (function () {
     const name = desired, request = ++revision;
     starting = name;
     if (!music.has(name)) {
-      const player = new Audio("assets/out/music/" + (musicFiles[name] ?? name + ".mp3"));
+      const player = new Audio("assets/out/music/" + musicFiles[name]);
       player.loop = true;
       player.volume = 0;
       music.set(name, { player, level: 0, from: 0, to: 0 });
@@ -109,7 +113,7 @@ DWR.Audio = (function () {
   }
 
   function setTheme(name) {
-    desired = name;
+    desired = Object.hasOwn(musicFiles, name) ? name : "menu";
     startMusic();
   }
 

@@ -4,9 +4,11 @@ window.DWR = window.DWR || {};
 
 DWR.Chars = (function () {
   const BODY_PX = 72, BOTTOM_PAD = 3;
+  const WARRIOR_RIG_BODY_PX = 65; // От макушки до подошв в составном спрайте воина.
+  const HERO_COMBAT_DENSITY = 2, WARRIOR_WALK_COLUMNS = 8;
   const WALK_FRAMES = 16, FALL_FRAMES = 12;
   // За цикл опорная стопа проходит две длины шага в координатах карты.
-  const WALK_CYCLE = { warrior: 48 / 72, goblinW: 36 / 64, goblinKing: 32 / 64, skeletonW: 40 / 74,
+  const WALK_CYCLE = { warrior: 48 / WARRIOR_RIG_BODY_PX, goblinW: 36 / 64, goblinKing: 32 / 64, skeletonW: 40 / 74,
     wolfhound: 0.84, werewolf: 0.6, lycan: 0.45, "orc-shield": 0.56, "orc-axe": 0.59, krag: 0.46 };
   const RANGER_CLIPS = { multishot: "ranger-multishot", preciseShot: "ranger-precise" };
   const FALLEN_BOUNDS = { warrior: [64, 105, 113], priest: [54, 97, 114], ranger: [54, 103, 114] };
@@ -55,12 +57,13 @@ DWR.Chars = (function () {
 
   function enemyBowRelease(unit) {
     const bow = BOWS[unit.kind];
-    return bow ? rigPoint(unit, ...bow) : null;
+    return DWR.ForgeMotion.bowRelease(unit) ?? (bow ? rigPoint(unit, ...bow) : null);
   }
 
   function staffPoint(unit, attack = unit.attack) {
     const staff = STAFFS[unit.kind];
-    return staff ? rigPoint(unit, staff[0], staff[1], attack ? enemyMotion(unit.kind, attack).arm : 0) : null;
+    return DWR.ForgeMotion.staffPoint(unit, attack) ??
+      (staff ? rigPoint(unit, staff[0], staff[1], attack ? enemyMotion(unit.kind, attack).arm : 0) : null);
   }
 
   function enemyMotion(kind, attack) {
@@ -141,9 +144,7 @@ DWR.Chars = (function () {
   function drawEnemyFall(ctx, unit, atlas, img) {
     const t = clamp(unit.poseT || 0);
     const width = atlas.naturalWidth / FALL_FRAMES, height = atlas.naturalHeight / 2;
-    const land = DWR.CONFIG.enemies[unit.kind]?.death?.land;
-    const phase = unit.kind === "lich" ? smooth(clamp((t - 0.10) / (land - 0.10))) : t;
-    const frame = Math.min(FALL_FRAMES - 1, Math.floor(phase * FALL_FRAMES));
+    const frame = Math.min(FALL_FRAMES - 1, Math.floor(t * FALL_FRAMES));
     const sign = facing(unit), direction = unit.fallForward ? 1 : -1;
     const scale = unit.h / img.naturalHeight;
     ctx.save();
@@ -156,7 +157,6 @@ DWR.Chars = (function () {
     ctx.scale(sign * scale, scale);
     ctx.globalAlpha *= 1 - 0.22 * t;
     ctx.imageSmoothingEnabled = false;
-    if (unit.kind === "lich") hitFlash(ctx, unit);
     ctx.drawImage(atlas, frame * width, unit.fallForward ? height : 0, width, height,
       -width / 2, 2 - height, width, height);
     ctx.restore();
@@ -187,8 +187,9 @@ DWR.Chars = (function () {
     ctx.restore();
   }
 
-  function drawFallen(ctx, unit, img, scale, w, base, progress) {
-    const [left, right, bottom] = FALLEN_BOUNDS[unit.kind] || [0, img.naturalWidth, img.naturalHeight];
+  function drawFallen(ctx, unit, img, scale, w, base, progress, density) {
+    const bounds = FALLEN_BOUNDS[unit.kind];
+    const [left, right, bottom] = bounds ? bounds.map(value => value * density) : [0, img.naturalWidth, img.naturalHeight];
     const king = unit.kind === "goblinKing";
     const land = DWR.CONFIG.enemies[unit.kind]?.death?.land;
     const fall = smooth(king ? clamp((progress - 0.16) / (land - 0.16)) : progress);
@@ -227,13 +228,27 @@ DWR.Chars = (function () {
     ctx.restore();
   }
 
+  function drawLycanPitch(ctx, atlas, width, height, pitch) {
+    // Перспектива сильнее меняет плечи и голову. Нижний край спрайта остаётся на полу.
+    const projectY = y => y + pitch * 0.11 * y * y / height;
+    for (let row = 0; row < height; row += 2) {
+      const band = Math.min(2, height - row);
+      const upper = 1 - (row + band / 2) / height;
+      const bandWidth = width * (1 + pitch * 0.21 * upper * upper);
+      const top = projectY(row - height), bottom = projectY(row + band - height);
+      ctx.drawImage(atlas, 0, row, width, band, -bandWidth / 2, top, bandWidth, bottom - top);
+    }
+  }
+
   function drawLycanFall(ctx, unit, atlas) {
     const t = clamp(unit.poseT || 0);
     const { land } = DWR.CONFIG.enemies.lycan.death;
-    const drop = smooth(clamp((t - 0.10) / (land - 0.18)));
+    const swayEnd = 0.28;
+    const sway = t < swayEnd ? t / swayEnd : 0;
+    const pitch = Math.sin(2 * Math.PI * sway) * Math.sin(Math.PI * sway);
+    const drop = smooth(clamp((t - swayEnd) / (land - 0.04 - swayEnd)));
     const settle = smooth(clamp((t - (land - 0.13)) / 0.13));
-    const stumble = Math.sin(Math.PI * clamp(t / 0.30)) * 0.13;
-    const angle = stumble - 0.50 * drop, stretch = 1 - 0.56 * drop, spread = 1 + 0.36 * drop;
+    const angle = -0.50 * drop, stretch = 1 - 0.56 * drop, spread = 1 + 0.36 * drop;
     const width = atlas.naturalWidth / 4, height = atlas.naturalHeight;
     const scale = unit.h / height, sign = -facing(unit);
     const x = Math.max(57 * scale, Math.min(unit.x - sign * 11 * scale * drop, DWR.CONFIG.canvas.w - 57 * scale));
@@ -257,7 +272,8 @@ DWR.Chars = (function () {
       ctx.scale(spread, 1);
       ctx.rotate(angle);
       ctx.scale(1, stretch);
-      ctx.drawImage(atlas, 0, 0, width, height, -width / 2, -height, width, height);
+      if (pitch) drawLycanPitch(ctx, atlas, width, height, pitch);
+      else ctx.drawImage(atlas, 0, 0, width, height, -width / 2, -height, width, height);
       ctx.restore();
     }
     if (settle > 0) {
@@ -319,20 +335,23 @@ DWR.Chars = (function () {
     const arm = baseArm + stride * 0.16, forearm = baseForearm + stride * 0.10, sword = baseSword + stride * 0.095;
     const { elbow, hand } = warriorGrip(arm, forearm);
     const bob = swinging || walking || pose === "frozen" ? 0 : unit.h * Math.sin(time * 2 + unit.x * 0.013) * 0.006;
-    const scale = unit.h / BODY_PX;
+    const scale = unit.h / WARRIOR_RIG_BODY_PX;
+    // Геометрия анимации остаётся в исходных координатах, растр вдвое плотнее.
+    const w = body.naturalWidth, h = body.naturalHeight;
+    const logicalW = w / HERO_COMBAT_DENSITY, logicalH = h / HERO_COMBAT_DENSITY;
 
     ctx.save();
     ctx.translate(unit.x, unit.y + bob);
     ctx.scale(facing(unit) * scale, scale);
     if (lean) ctx.rotate(lean);
-    ctx.translate(-body.naturalWidth / 2, -(body.naturalHeight - BOTTOM_PAD));
+    ctx.translate(-logicalW / 2, -(logicalH - BOTTOM_PAD));
     ctx.imageSmoothingEnabled = false;
     hitFlash(ctx, unit);
     if (walking) {
-      const w = body.naturalWidth, h = body.naturalHeight;
-      ctx.drawImage(atlas, step * w, 0, w, h, 0, 0, w, h);
+      const column = step % WARRIOR_WALK_COLUMNS, row = Math.floor(step / WARRIOR_WALK_COLUMNS);
+      ctx.drawImage(atlas, column * w, row * h, w, h, 0, 0, logicalW, logicalH);
       ctx.translate(0, -Math.round(1.4 * Math.abs(stride)));
-    } else ctx.drawImage(body, 0, 0);
+    } else ctx.drawImage(body, 0, 0, logicalW, logicalH);
 
     if (swinging && progress > 0.30 && progress < 0.61) {
       const [prevArm, prevFore, prevSword] = warriorPose(progress - 0.075);
@@ -354,7 +373,7 @@ DWR.Chars = (function () {
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(angle);
-      ctx.drawImage(image, -px, -py);
+      ctx.drawImage(image, -px, -py, image.naturalWidth / HERO_COMBAT_DENSITY, image.naturalHeight / HERO_COMBAT_DENSITY);
       ctx.restore();
     }
     drawPart(upper, ...WARRIOR_SHOULDER, arm, 3, 6);
@@ -424,17 +443,20 @@ DWR.Chars = (function () {
     if (unit.kind === "warrior" && pose !== "dead" && drawWarrior(ctx, unit, pose, time)) return;
     const baseImage = A.img[unit.kind];
     const enemy = DWR.CONFIG.enemies[unit.kind];
+    if (enemy?.rift) {
+      ctx.save();
+      hitFlash(ctx, unit);
+      DWR.RiftMotion.draw(ctx, baseImage, unit);
+      ctx.restore();
+      return;
+    }
     if (enemy?.motion) {
       const kind = enemy.motion[unit.enraged ? 1 : 0];
       const attack = pose !== "dead" && unit.attack;
-      const motion = !attack ? pose : attack.buffing || attack.guarding ? "cast" : "attack";
-      const { contact } = DWR.ForgeMotion;
-      const poseT = !attack ? unit.poseT : attack.hit
-        ? contact + (1 - contact) * clamp((attack.t - attack.windup) / attack.recovery)
-        : contact * clamp(attack.t / attack.windup);
+      const motion = attack ? DWR.ForgeMotion.attackPose(attack) : { pose, poseT: unit.poseT };
       ctx.save();
       hitFlash(ctx, unit);
-      DWR.ForgeMotion.draw(ctx, A.img[kind], { ...unit, kind, pose: motion, poseT });
+      DWR.ForgeMotion.draw(ctx, A.img[kind], { ...unit, kind, ...motion });
       ctx.restore();
       return;
     }
@@ -468,13 +490,16 @@ DWR.Chars = (function () {
     const fromClip = frame => clipId === "priest-cast" && frame === 3 && unit.castReleased && release?.naturalWidth
       ? release : clip?.[frame];
     const current = fromClip(index);
-    const img = current?.naturalWidth ? current : A.img[unit.kind];
+    const idle = A.frames[unit.kind]?.[0];
+    const fallback = idle?.naturalWidth ? idle : baseImage;
+    const img = current?.naturalWidth ? current : fallback;
     if (!img?.naturalWidth) return;
-    const h = unit.h, scale = h / (hero ? BODY_PX : img.naturalHeight);
+    const density = hero && img !== baseImage ? HERO_COMBAT_DENSITY : 1;
+    const h = unit.h, scale = h / (hero ? BODY_PX * density : img.naturalHeight);
     const w = img.naturalWidth * scale;
-    const base = (img.naturalHeight - (hero ? BOTTOM_PAD : 0)) * scale;
+    const base = (img.naturalHeight - (hero ? BOTTOM_PAD * density : 0)) * scale;
     if (pose === "dead") {
-      drawFallen(ctx, unit, img, scale, w, base, progress);
+      drawFallen(ctx, unit, img, scale, w, base, progress, density);
       return;
     }
 
@@ -492,9 +517,10 @@ DWR.Chars = (function () {
     if (lean) ctx.rotate(lean);
     ctx.imageSmoothingEnabled = false;
     hitFlash(ctx, unit);
-    const next = clip && (index + 1 < clip.length ? fromClip(index + 1) : A.img[unit.kind]);
+    const next = clip && (index + 1 < clip.length ? fromClip(index + 1) : fallback);
     // Смешиваем только конец фазы. В момент спуска или удара заданный кадр уже виден целиком.
-    const mix = next?.naturalWidth ? smooth(clamp((frameT - index - 0.52) / 0.48)) : 0;
+    const sameSize = next?.naturalWidth === img.naturalWidth && next.naturalHeight === img.naturalHeight;
+    const mix = sameSize ? smooth(clamp((frameT - index - 0.52) / 0.48)) : 0;
     const frame = mix === 0 ? img : mix === 1 ? next : mixFrames(img, next, mix);
     ctx.drawImage(frame, -w / 2, -base, w, img.naturalHeight * scale);
     ctx.restore();
@@ -519,7 +545,7 @@ DWR.Chars = (function () {
     }
     mask.save();
     mask.translate(-left, -top);
-    draw(mask, { ...unit, flash: 0 }, time);
+    draw(mask, { ...unit, flash: 0, outlineOnly: true }, time);
     mask.restore();
     // Контур строится из альфа-маски текущей позы, включая оружие.
     contour.save();
@@ -536,8 +562,8 @@ DWR.Chars = (function () {
     const frame = DWR.Assets.frames[clipId]?.[index];
     if (!frame?.naturalWidth) return null;
     const scale = unit.h / BODY_PX;
-    return { x: unit.x + (x - frame.naturalWidth / 2) * scale * facing(unit),
-      y: (y - (frame.naturalHeight - BOTTOM_PAD)) * scale };
+    return { x: unit.x + (x - frame.naturalWidth / (2 * HERO_COMBAT_DENSITY)) * scale * facing(unit),
+      y: (y - (frame.naturalHeight / HERO_COMBAT_DENSITY - BOTTOM_PAD)) * scale };
   }
 
   function bowRelease(unit, pose) {

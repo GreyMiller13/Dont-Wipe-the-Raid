@@ -40,7 +40,7 @@
     el("notice").dataset.error = String(isError);
   }
 
-  function validate(data) {
+  function validate(data, allowMissingMasteries = false) {
     if (!object(data) || Object.keys(data).length !== owners.length) throw Error("Нужны разделы воина, жрицы, лучника и рейда.");
     const ids = new Set();
     for (const ownerId of owners) {
@@ -85,13 +85,20 @@
         }
       }
     }
-    if ([...sourceNodes.keys()].some(id => !ids.has(id))) throw Error("В файле отсутствуют навыки текущей версии игры.");
+    if ([...sourceNodes.values()].some(node => !ids.has(node.id) && !(allowMissingMasteries && node.tier === 2))) {
+      throw Error("В файле отсутствуют навыки текущей версии игры.");
+    }
   }
 
   function load(text) {
     const file = JSON.parse(text);
     if (!object(file) || file.version !== 1) throw Error("Ожидается JSON-файл доски версии 1.");
-    validate(file.trees);
+    validate(file.trees, true);
+    const branches = new Map(Object.values(file.trees).flatMap(tree =>
+      tree.branches.flatMap(branch => branch.nodes.map(node => [node.id, branch]))));
+    for (const node of sourceNodes.values()) {
+      if (node.tier === 2 && !branches.has(node.id)) branches.get(node.parent).nodes.push(copy(node));
+    }
     return file.trees;
   }
 
@@ -133,7 +140,7 @@
         function rows(parent, depth) {
           return (children.get(parent) || []).map(node => `<button type="button" class="node-row" data-branch="${branch.id}" data-node="${node.id}"
               aria-pressed="${selected.kind === "node" && selected.id === node.id}" style="--depth:${depth}">
-              <span class="node-name">${esc(node.name)}</span><span>${node.max}</span><span>${rankLabel(node, 1)}</span>
+              <span class="node-name">${esc(node.name)}${node.tier === 2 ? " · Тир II" : ""}</span><span>${node.max}</span><span>${rankLabel(node, 1)}</span>
               <span>${rankLabel(node, node.max)}</span><span>${priceLabel(total([node]))}</span></button>` + rows(node.id, depth + 1)).join("");
         }
         return `<section class="branch"><div class="branch-header">
@@ -279,6 +286,7 @@
       const max = +value("max");
       const record = { id: value("id").trim(), name: value("name").trim(), desc: value("desc").trim(), base: +value("base"), mul: +value("mul"), max,
         effect, parent, requiresLevel: parent ? +value("requiresLevel") : 1 };
+      if (node.tier === 2) record.tier = 2;
       const prices = Array.from({ length: max }, (_, i) => overrides[i] ? +overrides[i] : null);
       while (prices.at(-1) === null) prices.pop();
       if (prices.length) record.prices = prices;
