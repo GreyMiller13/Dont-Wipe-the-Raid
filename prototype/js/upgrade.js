@@ -4,6 +4,16 @@ window.DWR = window.DWR || {};
 
 DWR.Upgrade = (function () {
   const S = DWR.State;
+  const BACKGROUND_URL = new URL("assets/backgrounds/skill-tree-cemetery-v2-optimized.webp?v=2", document.baseURI).href;
+  let backgroundImage;
+
+  function preloadBackground() {
+    if (backgroundImage) return;
+    backgroundImage = new Image();
+    backgroundImage.fetchPriority = "low";
+    backgroundImage.src = BACKGROUND_URL;
+  }
+
   const NODE_SIZE = 88, STEP_X = 226, STEP_Y = 101;
   const COLORS = {
     warrior: { color: "#f1a58b", line: "#ac6c61", pixels: ["#663a46", "#bd694c", "#ed9d68", "#fff1b9"] },
@@ -495,6 +505,7 @@ DWR.Upgrade = (function () {
         <div class="up-details">${renderDetails()}</div>
       </main>
       ${resetDialog()}`;
+    el.querySelector(".up-map").style.setProperty("--up-map-background", `url("${BACKGROUND_URL}")`);
     drawLinks(el.querySelector(".up-links"));
     bindCamera(el);
     bindHelp(el.querySelector(".up-tree-page"));
@@ -525,5 +536,5 @@ DWR.Upgrade = (function () {
     });
   }
 
-  return { redraw };
+  return { redraw, preloadBackground };
 })();
