@@ -5,7 +5,7 @@ window.DWR = window.DWR || {};
 DWR.PanelEditor = (function () {
   const ACTIONS = { targeted: "Перетащить на врага", instant: "Нажать",
     ally: "Перетащить на героя", auto: "ЛКМ включает авто", potion: "Перетащить на героя", ground: "Перетащить на поле" };
-  const RESOURCES = { rage: "ярость", focus: "фокус", mana: "мана" };
+  const RESOURCES = { rage: "ярости", focus: "фокуса", mana: "маны" };
   let toastTimer = null;
 
   function esc(s) {
@@ -14,7 +14,7 @@ DWR.PanelEditor = (function () {
 
   function savePanel() { DWR.State.save(); redraw(); }
 
-  // Клик по занятому слоту — снять элемент (в библиотеку)
+  // Клик по занятому слоту возвращает элемент в список доступных.
   function _remove(i) {
     DWR.State.data.panel[i] = null;
     savePanel();
@@ -64,7 +64,7 @@ DWR.PanelEditor = (function () {
       if (!drag) return null;
       const slot = element.closest("[data-slot]");
       if (slot) return Number(slot.dataset.slot) === drag.slot ? null : slot;
-      return drag.slot === null ? null : element.closest(".pe-library");
+      return drag.slot === null ? null : element.closest(".pe-available");
     }
 
     page.addEventListener("dragstart", e => {
@@ -111,64 +111,69 @@ DWR.PanelEditor = (function () {
     const S = DWR.State;
     const data = S.data;
     const stats = S.stats();
+    const filledCount = data.panel.filter(Boolean).length;
     const stocks = { potion: stats.potionStock, bomb: S.bombStock(stats), noiseBomb: S.bombStock(stats, "noiseBomb") };
-    const icon = id => `<img class="pe-slot-icon" src="${DWR.Assets.iconUrl(id)}" alt="" draggable="false">`;
+    const icon = id => `<img class="pe-skill-icon" src="${DWR.Assets.iconUrl(id)}" alt="" draggable="false">`;
 
     const slots = data.panel.map((item, i) => {
       if (item === null) {
-        return `<div class="pe-slot pe-slot-empty" data-slot="${i}" aria-label="Пустой слот">—</div>`;
+        return `<div class="pe-slot pe-slot-empty" data-slot="${i}">Свободно</div>`;
       }
       const sk = DWR.CONFIG.skills[item];
       return `<button class="pe-slot pe-slot-filled" draggable="true" data-slot="${i}" data-drag-skill="${item}"
         onclick="DWR.PanelEditor._remove(${i})" aria-label="Убрать: ${esc(sk.name)}">
         ${icon(item)}
         <span class="pe-slot-name">${esc(sk.name)}</span>
-        ${Object.hasOwn(stocks, item) ? (stocks[item] ? `<span class="pe-slot-badge">×${stocks[item]}</span>` : '<span class="pe-slot-owner">Не изучено</span>')
+        ${Object.hasOwn(stocks, item) ? (stocks[item] ? `<span class="pe-slot-badge">×${stocks[item]}</span>` : '<span class="pe-slot-owner">Подбирается в бою</span>')
           : `<span class="pe-slot-owner">${DWR.CONFIG.heroes[sk.owner].name}</span>`}
       </button>`;
     }).join("");
 
-    // Библиотека содержит изученные навыки, которые ещё не добавлены на панель.
-    const lib = Object.keys(DWR.CONFIG.skills)
+    const available = Object.keys(DWR.CONFIG.skills)
       .filter(id => S.hasSkill(id) && !data.panel.includes(id))
       .map(id => {
         const sk = DWR.CONFIG.skills[id];
         const action = sk.auto && sk.type === "instant" ? "ПКМ применяет · ЛКМ переключает авто"
-          : ACTIONS[sk.type] + (sk.auto && sk.type !== "auto" ? " или авто" : "");
-        const detail = Object.hasOwn(stocks, id) ? `${action} · На старте ×${stocks[id]}`
-          : `${sk.cost} · ${RESOURCES[sk.res]} · ${action}`;
-        return `<button class="pe-lib-item" draggable="true" data-drag-skill="${id}" onclick="DWR.PanelEditor._place('${id}')">
+          : (sk.targetEnemies ? "Перетащить на героя или врага" : ACTIONS[sk.type])
+            + (sk.auto && sk.type !== "auto" ? " или авто" : "");
+        const detail = Object.hasOwn(stocks, id)
+          ? `${stocks[id] ? `На старте ×${stocks[id]}` : "Подбирается в бою"} · ${action}`
+          : `${sk.cost} ${RESOURCES[sk.res]} · ${action}`;
+        return `<button class="pe-option" draggable="true" data-drag-skill="${id}" onclick="DWR.PanelEditor._place('${id}')">
           ${icon(id)} <span><strong>${esc(sk.name)}</strong><small>${detail}</small></span>
           <span class="pe-add" aria-hidden="true">+</span>
         </button>`;
       });
 
     const el = document.getElementById("screen-panel");
+    const scrollTop = el.querySelector(".pe-available")?.scrollTop ?? 0;
     el.innerHTML = `
       <main class="up-page pe-page">
         <header class="up-header">
           <h2 class="scr-h2">Панель навыков</h2>
-          <div class="up-header-right">
-            <span class="up-balance up-balance-runes"><img src="assets/out/rune.png" alt="">Руны <b>${data.runes}</b></span>
-            <button class="btn" onclick="DWR.showScreen('location')">Назад</button>
-          </div>
+          <button class="btn" onclick="DWR.showScreen('location')">Назад</button>
         </header>
         <div class="pe-layout">
-          <section class="pe-loadout">
+          <section class="pe-loadout" aria-labelledby="pe-slots-title">
             <div class="pe-section-head">
-              <h3>Снаряжение <small>${data.panel.filter(Boolean).length} / ${data.panel.length}</small></h3>
-              <button class="btn pe-clear" onclick="DWR.PanelEditor._clear()"${data.panel.some(Boolean) ? "" : " disabled"}>Очистить панель</button>
+              <h3 id="pe-slots-title">Слоты панели <small aria-label="Занято ${filledCount} из ${data.panel.length}">${filledCount} / ${data.panel.length}</small></h3>
+              <button class="btn pe-clear" onclick="DWR.PanelEditor._clear()"${filledCount ? "" : " disabled"}>Очистить панель</button>
             </div>
             <div class="pe-slots" style="--slot-count:${data.panel.length}">${slots}</div>
-            <p class="pe-hint">Перетащите навык в слот, на соседний навык или обратно в библиотеку.</p>
+            <p class="pe-hint">Перетащите карточку, чтобы поменять её место. Нажмите на занятый слот, чтобы освободить его.</p>
           </section>
-          <section class="pe-library">
-            <div class="pe-section-head"><h3>Библиотека</h3></div>
-            ${lib.length ? `<div class="pe-lib">${lib.join("")}</div>` : '<p class="pe-hint">Все доступные навыки на панели.</p>'}
+          <section class="pe-available" aria-labelledby="pe-available-title">
+            <div class="pe-section-head">
+              <h3 id="pe-available-title">Доступные навыки и предметы</h3>
+              ${available.length ? '<p class="pe-hint">Нажмите на карточку или перетащите её в нужный слот.</p>' : ""}
+            </div>
+            ${available.length ? `<div class="pe-options">${available.join("")}</div>`
+              : '<p class="pe-hint pe-empty">Все доступные навыки и предметы уже на панели.</p>'}
           </section>
         </div>
         <div class="pe-toast" id="pe-toast" role="status"></div>
       </main>`;
+    el.querySelector(".pe-available").scrollTop = scrollTop;
     bindSkillDrag(el.querySelector(".pe-page"));
   }
 

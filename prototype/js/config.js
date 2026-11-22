@@ -20,7 +20,7 @@ DWR.skillRankPrice = (node, rank) => {
 const forgeEnemy = stats => ({ ...stats, hp: stats.hp * 1.2, dmg: stats.dmg * 1.2 });
 const riftEarth = {
   hp: 189, dmg: 22, interval: 2.72, sizeMul: 1.06, speed: 119, stopRange: 116, formationGap: 23,
-  rift: { moves: ["petrify", "boulder"], melee: { windup: 0.64, recovery: 0.45 } }
+  rift: { moves: ["boulder"], petrifyAt: 0.5, melee: { windup: 0.64, recovery: 0.45 } }
 };
 const riftFire = {
   hp: 123, dmg: 17, interval: 2.82, sizeMul: 0.97, ranged: true, stopRange: 132,
@@ -147,13 +147,13 @@ DWR.CONFIG = {
             summon: { seconds: 0.95, repeatSeconds: 1.65, cooldown: 18, maxActive: 6,
                       minions: ["skeletonW", "skeletonA", "skeletonM"] },
             escape: { duration: 1.8, tint: "#cfb3ff" } },
-    wolfhound: { name: "Волкодав", hp: 58, dmg: 9, interval: 1.7, ranged: false, sizeMul: 0.8, spritePoses: true,
+    wolfhound: { name: "Волкодав", hp: 58, dmg: 9, interval: 1.7, ranged: false, sizeMul: 0.8, motion: ["wolfhound"],
       speed: 510, stopRange: 93, formationGap: 12, attack: { windup: 0.34, recovery: 0.33, impact: "bite" },
-      fall: { duration: 0.62, shapes: [[157, 88], [141, 83], [140, 76], [144, 66], [149, 56], [156, 56]] } },
-    werewolf: { name: "Волколак", hp: 96, dmg: 14, interval: 2.55, ranged: false, sizeMul: 1.24, spritePoses: true,
+      fall: { duration: 0.62 } },
+    werewolf: { name: "Волколак", hp: 96, dmg: 14, interval: 2.55, ranged: false, sizeMul: 1.24, motion: ["werewolf"],
       speed: 154, stopRange: 108, formationGap: 14, attack: { windup: 0.66, recovery: 0.43, impact: "claw", wave: { range: 350, speed: 960 } },
-      fall: { duration: 0.72, shapes: [[51, 88], [52, 75], [67, 63], [73, 48], [79, 40], [100, 35]] } },
-    lycan: { name: "Ликантроп", hp: 680, dmg: 15, interval: 3.15, ranged: false, sizeMul: 1.82, spritePoses: true, boss: true,
+      fall: { duration: 0.72 } },
+    lycan: { name: "Ликантроп", hp: 680, dmg: 15, interval: 3.15, ranged: false, sizeMul: 1.82, motion: ["lycan"], boss: true,
       speed: 148, stopRange: 124, attack: { windup: 0.82, recovery: 0.52, impact: "claw", party: true },
       howl: { initial: 3.4, cooldown: 16, windup: 1.18, recovery: 0.52, nextAttackDelay: 1.55, status: "stunned" },
       death: { duration: 1.9, land: 0.76, tint: "#d8d1bb" },
@@ -189,7 +189,7 @@ DWR.CONFIG = {
   riftMoves: {
     boulder: { initial: 3.7, cooldown: 11, windup: 0.95, recovery: 0.54, flight: 0.62,
       arc: 118, damage: 0.95, stunChance: 0.35, stun: 3, cast: "riftBoulder" },
-    petrify: { initial: 8.3, cooldown: 19, windup: 1.2, recovery: 0.30, cast: "riftPetrify" },
+    petrify: { windup: 1.2, recovery: 0.30, cast: "riftPetrify" },
     fireball: { initial: 1.15, cooldown: 5.4, windup: 0.65, recovery: 0.50, flight: 0.53,
       arc: 28, radius: 135, splash: 0.7, damage: 0.94, burnChance: 0.3 },
     burrow: { initial: 6.8, cooldown: 10, windup: 0.64, recovery: 0.30, cast: "riftBurrow" },

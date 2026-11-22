@@ -287,7 +287,8 @@ DWR.Upgrade = (function () {
 
   function bindCamera(screen) {
     const map = screen.querySelector(".up-map"), canvas = map.querySelector(".up-world");
-    const zoom = screen.querySelector(".up-zoom");
+    const zoomOut = screen.querySelector(".up-zoom-out"), zoomIn = screen.querySelector(".up-zoom-in");
+    const zoomStep = 1.2, maxScale = 1.85;
     let press = null, ignoreClick = false;
     const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
     const fitScale = () => Math.min(1, (map.clientWidth - 24) / world.width, (map.clientHeight - 24) / world.height);
@@ -296,7 +297,8 @@ DWR.Upgrade = (function () {
       camera.x = clamp(camera.x, 72 - world.width * camera.scale, map.clientWidth - 72);
       camera.y = clamp(camera.y, 72 - world.height * camera.scale, map.clientHeight - 72);
       canvas.style.transform = `translate(${camera.x}px,${camera.y}px) scale(${camera.scale})`;
-      zoom.textContent = Math.round(camera.scale * 100) + "%";
+      zoomOut.disabled = camera.scale <= fitScale() + 1e-6;
+      zoomIn.disabled = camera.scale >= maxScale;
     }
     function fitWorld() {
       camera.scale = fitScale();
@@ -306,13 +308,16 @@ DWR.Upgrade = (function () {
       paint();
     }
     function zoomAt(factor, x, y) {
-      const next = clamp(camera.scale * factor, fitScale(), 1.85);
+      const next = clamp(camera.scale * factor, fitScale(), maxScale);
       if (next === camera.scale) return;
       camera.overview = false;
       camera.x = x - (x - camera.x) * next / camera.scale;
       camera.y = y - (y - camera.y) * next / camera.scale;
       camera.scale = next;
       paint();
+    }
+    function zoomAroundCenter(factor) {
+      zoomAt(factor, map.clientWidth / 2, map.clientHeight / 2);
     }
     function pointer(e) {
       const bounds = map.getBoundingClientRect();
@@ -374,7 +379,7 @@ DWR.Upgrade = (function () {
         paint();
       } else if (e.key === "+" || e.key === "=" || e.key === "-") {
         e.preventDefault();
-        zoomAt(e.key === "-" ? 0.83 : 1.2, map.clientWidth / 2, map.clientHeight / 2);
+        zoomAroundCenter(e.key === "-" ? 1 / zoomStep : zoomStep);
       }
     });
     map.addEventListener("focusin", e => {
@@ -392,6 +397,8 @@ DWR.Upgrade = (function () {
         paint();
       }
     });
+    zoomOut.addEventListener("click", () => zoomAroundCenter(1 / zoomStep));
+    zoomIn.addEventListener("click", () => zoomAroundCenter(zoomStep));
     screen.querySelector(".up-fit").addEventListener("click", fitWorld);
     if (camera.overview) fitWorld();
     else paint();
@@ -453,21 +460,30 @@ DWR.Upgrade = (function () {
       <main class="up-page up-tree-page">
         <header class="up-header">
           <h2 class="scr-h2">Дерево навыков</h2>
-          <div class="up-header-right">
-            <div class="up-map-controls" aria-label="Управление картой">
-              <div class="up-help">
-                <button class="btn up-help-button" aria-label="Как управлять картой" aria-controls="up-help-toast" aria-expanded="false">i</button>
-                <div class="up-help-toast" id="up-help-toast" role="status" hidden>
-                  <p>Колесо мыши приближает и отдаляет карту.</p>
-                  <p>Зажмите ЛКМ и потяните, чтобы переместиться.</p>
-                </div>
-              </div>
-              <output class="up-zoom" aria-label="Масштаб"></output>
-              <button class="btn up-fit">Вся карта</button>
+          <div class="up-map-controls" role="group" aria-label="Управление картой">
+            <div class="up-zoom-controls" role="group" aria-labelledby="up-zoom-label">
+              <span id="up-zoom-label">Масштаб</span>
+              <button type="button" class="btn up-zoom-out" aria-label="Уменьшить масштаб" title="Уменьшить масштаб">−</button>
+              <button type="button" class="btn up-zoom-in" aria-label="Увеличить масштаб" title="Увеличить масштаб">+</button>
             </div>
-            <span class="up-balance"><img src="assets/out/coin.png" alt=""> <b>${S.data.coins}</b> монет</span>
-            <span class="up-balance up-balance-runes" title="Руны открывают активные навыки. Награда за первую победу в локации"><img src="assets/out/rune.png" alt="">Руны <b>${S.data.runes}</b></span>
-            <button class="btn up-reset" aria-haspopup="dialog" aria-controls="up-reset-dialog">Сброс навыков</button>
+            <button type="button" class="btn up-fit">Вся карта</button>
+            <div class="up-help">
+              <button type="button" class="btn up-help-button" aria-label="Как управлять картой" aria-controls="up-help-toast" aria-expanded="false">?</button>
+              <div class="up-help-toast" id="up-help-toast" role="status" hidden>
+                <p>Кнопки «−», «+» и колесо мыши меняют масштаб.</p>
+                <p>Зажмите ЛКМ и потяните, чтобы переместиться.</p>
+              </div>
+            </div>
+          </div>
+          <div class="up-header-right">
+            <div class="up-wallet" role="group" aria-label="Баланс">
+              <span class="up-balance"><img src="assets/out/coin.png" alt=""> <b>${S.data.coins}</b> монет</span>
+              <span class="up-balance up-balance-runes" title="Руны открывают активные навыки. Награда за первую победу в локации"><img src="assets/out/rune.png" alt="">Руны <b>${S.data.runes}</b></span>
+            </div>
+            <button type="button" class="btn up-reset" title="Сброс навыков" aria-label="Сброс навыков"
+              aria-haspopup="dialog" aria-controls="up-reset-dialog">
+              <img src="${DWR.Assets.assetUrl("menu-skill-reset.png")}" alt="">
+            </button>
             <button class="btn up-back">Назад</button>
           </div>
         </header>

@@ -218,8 +218,7 @@ DWR.Screens = (function () {
               ${arrow("next", "Следующая локация", right)}
             </div>
           </section>
-          <section class="scr-party">
-            <h3>Отряд</h3>
+          <section class="scr-party" aria-label="Герои и подготовка">
             <div class="scr-party-roster">
               ${DWR.CONFIG.heroOrder.map(id => `
                 <div class="scr-hero">
@@ -230,6 +229,7 @@ DWR.Screens = (function () {
             <div class="scr-party-actions">
               ${menuButton("upgrade", "Прокачка")}
               ${menuButton("panel", "Панель навыков")}
+              ${menuButton("bestiary", "Бестиарий")}
             </div>
           </section>
         </div>
@@ -258,6 +258,7 @@ DWR.Screens = (function () {
     el.querySelector("#scr-btn-treasure")?.addEventListener("click", () => DWR.startRun(id, true));
     el.querySelector("#scr-btn-upgrade").addEventListener("click", () => DWR.showScreen("upgrade"));
     el.querySelector("#scr-btn-panel").addEventListener("click", () => DWR.showScreen("panel"));
+    el.querySelector("#scr-btn-bestiary").addEventListener("click", () => DWR.showScreen("bestiary"));
     DWR.Assets.preloadLocation(id);
   }
 

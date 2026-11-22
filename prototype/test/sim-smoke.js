@@ -388,17 +388,48 @@ check("сбитый замах фаербола отменяет снаряд, �
 
 run = prepareForge(rangedRoom);
 const [behind, closer, farther] = run.enemies;
-behind.x = run.heroes.priest.x - 30;
-closer.x = 800; farther.x = 1000;
+behind.x = 40;
+closer.x = 560; farther.x = 1000;
 closer.hp = closer.maxHp = farther.hp = farther.maxHp = 140;
 const health = run.enemies.map(enemy => enemy.hp);
-S.setAuto(run, "fireTornado", true);
+const castRight = S.useGround(run, "fireTornado", closer.x);
 stepFor(run, 2);
-check("автосмерч долго кастуется и расходует большой запас маны", run.heroes.priest.attackPose?.spell === "fireTornado" &&
+check("смерч долго кастуется и расходует большой запас маны", castRight && run.heroes.priest.attackPose?.spell === "fireTornado" &&
   run.heroes.priest.mana < 3 && !run.tornadoes.length && run.enemies.every((enemy, index) => enemy.hp === health[index]));
 stepFor(run, 3);
 check("смерч движется вправо и наносит каждому врагу на пути 100 базового урона один раз", skills.fireTornado.dmg === 100 && near(behind.hp, health[0]) &&
   near(closer.hp, health[1] - skills.fireTornado.dmg) && near(farther.hp, health[2] - skills.fireTornado.dmg) && !run.tornadoes.length);
+
+run = prepareForge(rangedRoom);
+const rearTarget = run.enemies[0], frontTarget = run.enemies[1];
+rearTarget.x = 95;
+rearTarget.flanking = true;
+rearTarget.hp = rearTarget.maxHp = 140;
+const frontHealth = frontTarget.hp;
+run.equipped.add("fireball");
+S.setAuto(run, "fireball", true);
+S.setAuto(run, "fireTornado", true);
+run.skillCooldowns.set("fireball", skills.fireball.cooldown);
+S.tick(run, 0);
+check("жрица поворачивается к тыловой цели и начинает смерч, пока фаербол недоступен",
+  run.heroes.priest.facing === -1 && run.heroes.priest.attackPose?.spell === "fireTornado");
+stepFor(run, skills.fireTornado.castTime + 0.8);
+check("смерч поражает тыловую цель и исчезает у левого края", rearTarget.hp === 40 &&
+  frontTarget.hp === frontHealth && !run.tornadoes.length);
+
+run = prepareForge(rangedRoom);
+const [leftFoe, nearerFoe] = run.enemies;
+leftFoe.x = 40;
+nearerFoe.x = run.heroes.priest.x + 100;
+const leftFoeHp = leftFoe.hp;
+run.equipped.add("fireball");
+S.setAuto(run, "fireball", true);
+S.tick(run, 0);
+check("автофаербол разворачивает жрицу к цели слева без отметки тыла, даже если враг справа ближе",
+  !leftFoe.flanking && run.heroes.priest.facing === -1 &&
+  run.attacks.some(shot => shot.kind === "fire" && shot.target === leftFoe && shot.facing === -1));
+stepFor(run, 1);
+check("фаербол поражает цель слева", leftFoe.hp < leftFoeHp);
 
 run = prepareForge(rangedRoom);
 const guardWarrior = run.heroes.warrior, fireboltOrc = run.enemies[1];
@@ -885,9 +916,18 @@ try {
 
   run = prepareForge(rift.rooms[0]);
   const stone = run.enemies[0];
+  stone.hp = stone.maxHp * 0.5 + 1;
+  stone.rift.cooldowns.boulder = 1e6;
+  stepFor(run, 9);
+  stone.atkT = 0;
+  S.tick(run, 0);
+  check("Земляной элементаль выше половины ОЗ не начинает каменную форму по таймеру", stone.attack?.riftMove !== "petrify");
   stone.hp = stone.maxHp * 0.5;
+  stone.atkT = 1e6;
   run.equipped.add("fireball");
-  forceRiftMove(run, stone, "petrify");
+  S.tick(run, 0);
+  check("Ровно при 50% ОЗ элементаль начинает окаменение без ожидания общей задержки атаки",
+    S.specialAttackKey(stone) === "riftPetrify" && !stone.effects.has("riftStone"));
   stepFor(run, moves.petrify.windup - 0.4);
   const fired = S.useTargeted(run, "fireball", stone.uid);
   stepFor(run, 0.96);
@@ -898,12 +938,34 @@ try {
   stepFor(run, 5);
   check("Каменная форма даёт пять тиков по 5% и возвращает уязвимость",
     !stone.effects.has("riftStone") && near(stone.hp, stone.maxHp * 0.75));
+  stepFor(run, DWR.CONFIG.riftMotion.unstone);
+  stone.hp = stone.maxHp * 0.49;
+  S.tick(run, 0);
+  check("Повторное падение ниже 50% ОЗ не запускает каменную форму", stone.attack?.riftMove !== "petrify");
   S.applyStatus(stone, "riftStone");
   run.equipped.add("dispel");
   check("Ручное рассеивание можно направить на каменного элементаля", S.useDispel(run, stone.uid));
   stepFor(run, skills.dispel.castTime + 0.02);
   check("Рассеивание запускает выход из каменной формы",
     !stone.effects.has("riftStone") && stone.rift.motion?.name === "unstone");
+
+  run = prepareForge(riftBossRoom);
+  const castEarth = run.enemies[0];
+  forceRiftMove(run, castEarth, "boulder");
+  stepFor(run, moves.boulder.windup / 2);
+  castEarth.hp = Math.floor(castEarth.maxHp * 0.5);
+  S.tick(run, 0);
+  check("На пороге 50% ОЗ колосс сохраняет начатый каст валуна",
+    castEarth.attack?.riftMove === "boulder" && !castEarth.attack.hit);
+  stepFor(run, moves.boulder.windup / 2);
+  check("Колосс начинает окаменение в момент выпуска валуна, до восстановления после броска",
+    castEarth.attack?.riftMove === "petrify" && castEarth.attack.t === 0 &&
+    run.attacks.some(shot => shot.kind === "riftBoulder" && shot.caster === castEarth));
+  run.equipped.add("dispel");
+  S.useDispel(run, castEarth.uid);
+  stepFor(run, skills.dispel.castTime + 0.05);
+  check("Рассеивание прерывает окаменение на пороге без повторного каста",
+    !castEarth.attack && !castEarth.effects.has("riftStone"));
 
   run = prepareForge(rift.rooms[1]);
   const fire = run.enemies[1], party = run.heroes;
@@ -917,17 +979,30 @@ try {
     party.ranger.hp === party.ranger.maxHp && party.warrior.effects.has("riftBurn") && !party.warrior.effects.get("riftBurn").stacks);
   fire.rift.cooldowns.fireball = 1e6;
   const oldX = fire.x;
+  const woundedHp = fire.hp = Math.floor(fire.maxHp * 0.45);
   forceRiftMove(run, fire, "burrow");
   stepFor(run, moves.burrow.windup + 0.55);
   check("Во время ухода под землю элементаль недоступен для атак", !S.targetable(fire) && fire.x === oldX);
   stepFor(run, 1);
   check("Огненный элементаль возвращается в другом месте, перезарядка 10 секунд",
     S.targetable(fire) && Math.abs(fire.x - oldX) > 180 && fire.x < party.ranger.x && moves.burrow.cooldown === 10);
+  check("Уход под землю и появление в тылу сохраняют текущее здоровье элементаля", fire.hp === woundedHp);
   Math.random = () => 0.99;
   forceRiftMove(run, fire, "burrow");
   stepFor(run, moves.burrow.windup + DWR.CONFIG.riftMotion.burrow + 0.01);
   check("С тыла элементаль перемещается перед строем лучника и жрицы", S.targetable(fire) && fire.x > party.priest.x);
+  check("При повторном перемещении здоровье элементаля сохраняется", fire.hp === woundedHp);
   Math.random = () => 0;
+
+  run = prepareForge(rift.rooms[1]);
+  const [groundThreat, immuneRear] = run.enemies;
+  groundThreat.alive = false;
+  immuneRear.x = run.heroes.priest.x - 100;
+  run.equipped.add("fireball");
+  S.setAuto(run, "fireball", true);
+  S.tick(run, 0);
+  check("Жрица разворачивается к огненному элементалю в тылу и сохраняет ману",
+    run.heroes.priest.facing === -1 && run.heroes.priest.mana === run.heroes.priest.manaMax && !run.attacks.length);
 
   const fireTestRoom = DWR.CONFIG.rooms[rift.rooms[1]], originalEnemies = fireTestRoom.enemies;
   try {

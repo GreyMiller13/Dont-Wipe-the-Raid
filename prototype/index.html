@@ -6,39 +6,43 @@
 <link id="menu-cover-preload" rel="preload" as="image" href="assets/backgrounds/dragon-menu-v4-optimized.webp" fetchpriority="high">
 <link rel="icon" href="assets/out/coin.png">
 <link rel="stylesheet" href="style.css?v=potion-loadout-1">
-<link rel="stylesheet" href="css/screens.css?v=combat-stats-1">
-<link rel="stylesheet" href="css/upgrade.css?v=masteries-1">
+<link rel="stylesheet" href="css/screens.css?v=bestiary-1">
+<link rel="stylesheet" href="css/bestiary.css?v=bestiary-3">
+<link rel="stylesheet" href="css/upgrade.css?v=skill-panel-1">
 </head>
 <body>
 <div id="stage">
   <!-- Игровой canvas: сцена забега (комнаты, персонажи, лут, панель навыков) -->
   <canvas id="game-canvas" width="1280" height="720"></canvas>
 
-  <!-- DOM-экраны поверх canvas. Содержимое генерируют js/screens.js, js/upgrade.js, js/paneleditor.js -->
+  <!-- DOM-экраны поверх canvas. -->
   <div class="screen" id="screen-menu"></div>
   <div class="screen" id="screen-location"></div>
+  <div class="screen" id="screen-bestiary"></div>
   <div class="screen" id="screen-upgrade"></div>
   <div class="screen" id="screen-panel"></div>
   <div class="screen" id="screen-results"></div>
 </div>
 
-<!-- Порядок загрузки фиксирован; файлы-заглушки уже существуют. НЕ менять порядок. -->
-<script src="js/skill-tree-data.js?v=raid-fixes-1"></script>
-<script src="js/config.js?v=raid-fixes-1"></script>
-<script src="js/forge-motion.js?v=crypt-art-1"></script>
+<!-- Сначала конфигурация и состояние, затем модули экранов и игрового цикла. -->
+<script src="js/skill-tree-data.js?v=burrow-priest-1"></script>
+<script src="js/config.js?v=rift-petrify-1"></script>
+<script src="js/bestiary-data.js?v=rift-petrify-1"></script>
+<script src="js/forge-motion.js?v=wilds-art-1"></script>
 <script src="js/rift-motion.js?v=rift-1"></script>
-<script src="js/assets.js?v=crypt-art-1&amp;art=priest-modes-1&amp;hero=hd-1"></script>
-<script src="js/state.js?v=rift-1"></script>
+<script src="js/assets.js?v=skill-panel-1&amp;art=priest-modes-1&amp;hero=hd-1&amp;menu=bestiary-1"></script>
+<script src="js/state.js?v=bestiary-1"></script>
 <script src="js/audio.js?v=rift-1"></script>
 <script src="js/chars.js?v=crypt-art-1"></script>
-<script src="js/screens.js?v=crypt-art-1"></script>
-<script src="js/upgrade.js?v=masteries-1"></script>
-<script src="js/paneleditor.js?v=warrior-and-noise-bomb-1"></script>
-<script src="js/sim.js?v=raid-fixes-1"></script>
-<script src="js/run.js?v=raid-fixes-1"></script>
-<script src="js/panel.js?v=rift-1"></script>
+<script src="js/screens.js?v=bestiary-1"></script>
+<script src="js/bestiary.js?v=bestiary-1"></script>
+<script src="js/upgrade.js?v=skill-toolbar-1"></script>
+<script src="js/paneleditor.js?v=skill-panel-1"></script>
+<script src="js/sim.js?v=rift-petrify-1"></script>
+<script src="js/run.js?v=bestiary-1"></script>
+<script src="js/panel.js?v=skill-panel-1"></script>
 <script src="js/input.js?v=warrior-and-noise-bomb-1"></script>
-<script src="js/main.js?v=all-new-music-1"></script>
+<script src="js/main.js?v=bestiary-1"></script>
 </body>
 </html>
 

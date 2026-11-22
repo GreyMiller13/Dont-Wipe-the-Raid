@@ -3,7 +3,7 @@
 window.DWR = window.DWR || {};
 
 (function () {
-  let current = null;      // активный экран: 'menu' | 'location' | 'upgrade' | 'panel' | 'game' | 'results'
+  let current = null;      // активный экран
   let pendingRun = null;
   let lastTs = 0;
 
@@ -16,7 +16,7 @@ window.DWR = window.DWR || {};
       const el = document.getElementById("screen-" + id);
       if (el) el.classList.add("active");
       // Экраны сами перерисовывают содержимое при показе (хук redraw, если есть)
-      const mod = { menu: "Screens", location: "Screens",
+      const mod = { menu: "Screens", location: "Screens", bestiary: "Bestiary",
                     upgrade: "Upgrade", panel: "PanelEditor", results: "Screens" }[id];
       if (mod && DWR[mod] && typeof DWR[mod].redraw === "function") DWR[mod].redraw();
     } else if (DWR.Run && DWR.Run.onEnter) DWR.Run.onEnter();

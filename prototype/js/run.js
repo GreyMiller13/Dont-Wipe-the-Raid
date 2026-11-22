@@ -172,7 +172,15 @@ DWR.Run = (function () {
     R.floaters = []; R.auras = []; R.beams = []; R.meleeImpacts = [];
     R.potionHover = null;
     R.chestOpened = false;
+    R.encounteredCount = 0;
     DWR.Sim.spawnRoom(R.sim, R.seq[i]);
+  }
+
+  function recordEncounters() {
+    const enemies = R.sim.enemies;
+    if (enemies.length === R.encounteredCount) return;
+    DWR.State.recordEncounters(R.location, enemies.slice(R.encounteredCount).map(enemy => enemy.kind));
+    R.encounteredCount = enemies.length;
   }
 
   // --- Завершение забега ---
@@ -260,7 +268,10 @@ DWR.Run = (function () {
 
     if (R.phase === "fadein") {
       R.phaseT += dt;
-      if (R.phaseT >= DWR.CONFIG.fadeSec) R.phase = "room";
+      if (R.phaseT >= DWR.CONFIG.fadeSec) {
+        R.phase = "room";
+        recordEncounters();
+      }
       return;
     }
     if (R.phase === "wipeDelay") {
@@ -285,6 +296,7 @@ DWR.Run = (function () {
     }
     const wasInBattle = DWR.Sim.inBattle(sim);
     DWR.Sim.tick(sim, dt);
+    recordEncounters();
     if (wasInBattle && !sim.over && !curRoom().boss && !DWR.Sim.inBattle(sim) && sim.stats.roomCoins > 0) {
       R.runCoins += sim.stats.roomCoins;
       floater(CV().w / 2, FLOOR - 170, "Зачистка +" + sim.stats.roomCoins, "#ffd092");
@@ -337,7 +349,10 @@ DWR.Run = (function () {
         if (f.id === "kragRage") floater(f.unit.x, FLOOR - f.unit.h * 0.6, "Броня разбита", "#ffba83");
       }
       else if (f.type === "necroticBeam") R.beams.push({ ...f, t: 0 });
-      else if (f.type === "howl") R.auras.push({ x: f.x, y: FLOOR + f.y, t: 0.82, howl: true });
+      else if (f.type === "howl") {
+        const { x, y } = DWR.ForgeMotion.howlGeometry(f.unit);
+        R.auras.push({ x, y: FLOOR + y, t: 0.82, howl: true });
+      }
       else if (f.type === "groundSmash") R.auras.push({ x: f.x, t: GROUND_IMPACT, groundSmash: true });
       else if (f.type === "freeze" || f.type === "thaw") {
         const { x, h } = f.unit;
@@ -755,14 +770,18 @@ DWR.Run = (function () {
         enraged: e.effects.has("kragRage"), fallForward: e.x + e.h > CV().w,
         flash: (R.flash.get(e) || 0) / 0.18 }, R.time);
       ctx.restore();
-      if (visible) {
-        const height = p.pose === "stone" ? e.h * 0.72 : e.h;
+      if (visible || p.pose === "burrow") {
+        const height = p.pose === "stone" ? e.h * 0.72 : DWR.ForgeMotion.howlGeometry(e).height;
         const barY = FLOOR - height - (e.def.armor ? 20 : 12), width = e.def.armor ? 116 : 74;
+        ctx.save();
+        // Во время перемещения сохраняем видимым остаток здоровья того же элементаля.
+        if (!visible) ctx.globalAlpha *= 0.55;
         bar(ctx, e.x, barY, width, 8, e.hp / e.maxHp, "#b8563e");
         if (e.armor > 0) bar(ctx, e.x, barY + 10, width, 6, e.armor / e.def.armor, "#a8cce7");
         const showName = e.boss && (e.def.spritePoses || e.def.motion || e.def.rift);
         if (showName) text(ctx, e.def.name, e.x, barY - 10, "600 18px", "#f6ddcf", "center");
-        drawStatusBadges(ctx, e, showName ? 23 : 0, height);
+        if (visible) drawStatusBadges(ctx, e, showName ? 23 : 0, height);
+        ctx.restore();
       } else if (e.def.death && p.poseT < 1) drawBossDeathFx(ctx, e, p.poseT);
     }
     // герои
@@ -811,7 +830,8 @@ DWR.Run = (function () {
         : e.ritual ? e.ritual.t / e.ritual.duration : attack.t / attack.windup);
       const x = Math.max(8, Math.min(e.x - total / 2, CV().w - total - 8));
       const aboveName = e.boss && (e.def.spritePoses || e.def.motion || e.def.rift) ? 23 : 0;
-      let y = Math.max(6, FLOOR - e.h - (e.effects.size ? 77 : 47) - aboveName);
+      const height = DWR.ForgeMotion.howlGeometry(e).height;
+      let y = Math.max(6, FLOOR - height - (e.effects.size ? 77 : 47) - aboveName);
       while (y > 6 && rows.some(row => Math.abs(row.y - y) < iconSize + 4 && Math.abs(row.x - x) < total + 4)) {
         y = Math.max(6, y - iconSize - 4);
       }
@@ -991,7 +1011,8 @@ DWR.Run = (function () {
       if ((e.ritual && !e.ritual.hit) || ((e.attack?.beam || e.attack?.freezing) && !e.attack.hit)) drawNecroticCharge(ctx, e);
       if ((e.attack?.howling || e.attack?.buffing && e.def.buff.id === "orcWarCry") && !e.attack.hit) {
         const phase = Math.min(1, e.attack.t / e.attack.windup);
-        drawHowlWave(ctx, e.x, FLOOR - e.h * 0.84, phase, true);
+        const { x, y } = DWR.ForgeMotion.howlGeometry(e);
+        drawHowlWave(ctx, x, FLOOR + y, phase, true);
       }
       const attack = e.attack, target = attack?.lockedTarget;
       if (target?.alive && !attack.hit && (attack.stunning || attack.projectile === "firebolt")) {
@@ -1641,11 +1662,13 @@ DWR.Run = (function () {
   }
 
   function drawFireTornado(ctx, tornado) {
-    const growth = Math.min(1, (tornado.x - tornado.origin) / 95);
-    const fade = Math.min(1, (CV().w - tornado.x) / 95);
+    const edge = tornado.direction < 0 ? 0 : CV().w;
+    const growth = Math.min(1, Math.abs(tornado.x - tornado.origin) / 95);
+    const fade = Math.min(1, Math.abs(edge - tornado.x) / 95);
     const height = 244 + 70 * growth, time = R.time * (reducedMotion.matches ? 6 : 15);
     ctx.save();
     ctx.translate(tornado.x, FLOOR);
+    ctx.scale(tornado.direction, 1);
     ctx.globalAlpha = fade;
 
     const glow = ctx.createRadialGradient(0, 0, 5, 0, 0, 87);

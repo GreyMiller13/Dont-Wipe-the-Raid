@@ -53,7 +53,8 @@ DWR.Panel = (function () {
     const image = DWR.Assets.icons[id];
     if (!image?.naturalWidth) return;
     ctx.save();
-    ctx.imageSmoothingEnabled = false;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     ctx.drawImage(image, left, top, size, size);
     ctx.restore();
   }

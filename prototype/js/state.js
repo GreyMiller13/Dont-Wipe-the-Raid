@@ -47,6 +47,7 @@ DWR.State = (function () {
       wildsDone: false,
       forgeDone: false,
       riftDone: false,
+      bestiary: {},            // { id локации: виды встреченных противников }
       treasuresOpened: {},     // { id локации: открыт ли сундук за первое убийство }
       settings: { music: 0.7, sound: 0.8 }
     };
@@ -66,6 +67,7 @@ DWR.State = (function () {
           if (Number.isFinite(value)) settings[key] = Math.min(1, Math.max(0, value));
         }
         data = Object.assign(defaults, saved, { settings });
+        data.bestiary = loadBestiary(saved);
         resizePanel();
         if (data.started && !Object.hasOwn(saved, "runes")) {
           // Сохраняем доступ к прежнему фаерболу и учитываем уже открытые сундуки.
@@ -99,6 +101,33 @@ DWR.State = (function () {
   function locationUnlocked(id) {
     const location = DWR.CONFIG.locations[id];
     return !!location && (!location.unlockAfter || locationCleared(location.unlockAfter));
+  }
+  function locationEnemies(id) {
+    const kinds = DWR.CONFIG.locations[id].rooms.flatMap(index => {
+      const { enemies, fusion } = DWR.CONFIG.rooms[index];
+      return fusion ? [...enemies, fusion] : enemies;
+    });
+    return [...new Set(kinds)];
+  }
+  function loadBestiary(saved) {
+    if (!Object.hasOwn(saved, "bestiary")) {
+      // Историю отдельных встреч старые сохранения не содержат.
+      return Object.fromEntries(Object.keys(DWR.CONFIG.locations)
+        .filter(locationCleared)
+        .map(id => [id, locationEnemies(id)]));
+    }
+    const valid = Object.entries(saved.bestiary ?? {}).filter(([id, kinds]) =>
+      Object.hasOwn(DWR.CONFIG.locations, id) && Array.isArray(kinds));
+    return Object.fromEntries(valid.map(([id, kinds]) =>
+      [id, [...new Set(kinds.filter(kind => typeof kind === "string"))]]));
+  }
+  function recordEncounters(id, kinds) {
+    const seen = new Set(data.bestiary[id]);
+    const count = seen.size;
+    for (const kind of kinds) seen.add(kind);
+    if (seen.size === count) return;
+    data.bestiary[id] = [...seen];
+    save();
   }
   function completeLocation(id) {
     if (locationCleared(id)) return;
@@ -241,6 +270,7 @@ DWR.State = (function () {
   return {
     get data() { return data; },
     load, save, reset, locationCleared, locationUnlocked, completeLocation, bombStock,
+    locationEnemies, recordEncounters,
     treasureUnopened, treasureAvailable, openTreasure,
     nodeDef, nodeCount, nodePrice, nodeCurrency, nodeUnlocked, nodeBuyable, buyNode, hasSkill, autoEnabled, setAuto,
     skillResetInfo, resetSkills,

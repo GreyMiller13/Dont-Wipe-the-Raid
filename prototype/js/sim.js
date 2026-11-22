@@ -84,7 +84,7 @@ DWR.Sim = (function () {
   }
 
   function castPriestAuto(run, priest, battle) {
-    if (priest.attackPose) return;
+    if (priest.attackPose || controlled(priest)) return;
     if (run.autoSkills.has("dispel") && skillStatus(run, "dispel").ready) {
       const target = dispelTarget(run) ?? nearestEnemy(run, priest.x, canDispelEnemy);
       if (target && useDispel(run, target.id ?? target.uid)) return;
@@ -105,14 +105,18 @@ DWR.Sim = (function () {
       }
       if (target && useHeal(run, target.id)) return;
     }
-    const reserve = autoHeal ? skillStatus(run, "heal").cost : 0;
     const autoFireball = run.autoSkills.has("fireball");
-    const target = autoFireball ? rangedTarget(run, priest.x, acceptsFire) : null;
-    if (!target?.flanking && run.autoSkills.has("fireTornado") && canLaunchTornado(run, acceptsFire) &&
-        beginPriestCast(run, "fireTornado")) return;
+    const autoTornado = run.autoSkills.has("fireTornado");
+    if (!autoFireball && !autoTornado) return;
+    const rear = nearestEnemy(run, priest.x, enemy => enemy.x < priest.x && vulnerable(enemy) && acceptsFire(enemy));
+    if (rear || run.enemies.some(enemy => targetable(enemy) && enemy.x < priest.x)) priest.facing = -1;
+    const target = rear ?? rangedTarget(run, priest.x, acceptsFire);
     if (!target) return;
-    if (priest.mana < skillStatus(run, "fireball").cost + reserve) return;
-    useTargeted(run, "fireball", target.uid);
+    const reserve = autoHeal ? skillStatus(run, "heal").cost : 0;
+    const canFireball = autoFireball && priest.mana >= skillStatus(run, "fireball").cost + reserve;
+    if ((rear || target.flanking) && canFireball && useTargeted(run, "fireball", target.uid)) return;
+    if (autoTornado && beginPriestCast(run, "fireTornado", target.x)) return;
+    if (canFireball) useTargeted(run, "fireball", target.uid);
   }
   function frontHero(run) {
     for (const id of run.heroOrder) if (run.heroes[id].alive) return run.heroes[id];
@@ -614,7 +618,7 @@ DWR.Sim = (function () {
       attack.x = attack.target.x + attack.offsetX;
       attack.y = torsoY(attack.target) + attack.offsetY;
       if (attack.t < attack.windup + attack.flight) return true;
-      if (attack.target.alive && arrowShots.has(attack.kind)) soundCue(run, "arrowHit", attack.target.x);
+      if (targetable(attack.target) && arrowShots.has(attack.kind)) soundCue(run, "arrowHit", attack.target.x);
       if (attack.target.alive && attack.kind === "firebolt") soundCue(run, "fireImpact", attack.target.x);
 
       if (attack.kind === "frost") {
@@ -722,17 +726,19 @@ DWR.Sim = (function () {
 
   function advanceHeroProjectiles(run, dt) {
     run.tornadoes = run.tornadoes.filter(tornado => {
-      const edge = C().canvas.w;
-      const next = Math.min(edge, tornado.x + tornado.speed * dt);
+      const { direction } = tornado;
+      const edge = direction < 0 ? 0 : C().canvas.w;
+      const distance = Math.min(Math.abs(edge - tornado.x), tornado.speed * dt);
+      const next = tornado.x + direction * distance;
       for (const enemy of run.enemies) {
-        if (!vulnerable(enemy) || tornado.hit.has(enemy) || enemy.x < tornado.origin ||
-            enemy.x < tornado.x - 28 || enemy.x > next) continue;
+        if (!vulnerable(enemy) || tornado.hit.has(enemy) || (enemy.x - tornado.origin) * direction < 0 ||
+            (enemy.x - tornado.x) * direction < -28 || (enemy.x - next) * direction > 0) continue;
         tornado.hit.add(enemy);
         hitEnemy(run, enemy, tornado.damage, rollCritical(tornado.caster), tornado.caster, "fireTornado");
         run.fx.push({ type: "tornadoHit", unit: enemy });
       }
       tornado.x = next;
-      return next < edge;
+      return (edge - next) * direction > 0;
     });
     run.bombThrows = run.bombThrows.filter(bomb => {
       bomb.t += dt;
@@ -756,7 +762,7 @@ DWR.Sim = (function () {
     for (const hero of Object.values(run.heroes)) {
       if (hero.alive) interruptHero(run, hero, enemy.def.howl.status);
     }
-    run.fx.push({ type: "howl", x: enemy.x, y: -enemy.h * 0.84 });
+    run.fx.push({ type: "howl", unit: enemy });
   }
 
   function advanceGroundWaves(run, dt) {
@@ -833,7 +839,7 @@ DWR.Sim = (function () {
 
   function cancelRiftCast(enemy) {
     const move = enemy.attack.riftMove;
-    enemy.rift.cooldowns[move] = C().riftMoves[move].cooldown;
+    if (Object.hasOwn(enemy.rift.cooldowns, move)) enemy.rift.cooldowns[move] = C().riftMoves[move].cooldown;
     enemy.attack = null;
     enemy.atkT = enemy.interval;
   }
@@ -938,14 +944,16 @@ DWR.Sim = (function () {
     if (controlled(enemy) || enemy.effects.has("riftStone")) return;
     enemy.atkT -= dt;
     const attack = enemy.attack;
-    if (attack) {
+    const petrify = def.petrifyAt !== undefined && !rift.petrifyUsed && enemy.hp <= enemy.maxHp * def.petrifyAt;
+    // Начатый бросок выпускает валун. Замах окаменения стартует в том же тике.
+    if (attack && (!petrify || (attack.riftMove === "boulder" && !attack.hit))) {
       attack.t += dt;
       if (!attack.hit && attack.t + 1e-9 >= attack.windup) {
         attack.hit = true;
         resolveRiftMove(run, enemy, attack);
       }
       if (attack.t + 1e-9 >= attack.windup + attack.recovery) enemy.attack = null;
-      return;
+      if (!petrify || !attack.hit || run.over) return;
     }
     const target = enemyTarget(run, enemy);
     if (!target) return;
@@ -953,8 +961,8 @@ DWR.Sim = (function () {
     const gap = Math.abs(target.x - enemy.x) - riftStopRange(enemy);
     const ready = def.moves.find(move => rift.cooldowns[move] <= 0);
     const fallback = rift.nextFire || (enemy.def.ranged && gap > 0) ? "fireball" : "melee";
-    const move = ready ?? fallback;
-    if (enemy.atkT <= 0 && (move !== "melee" || gap <= 1e-9)) {
+    const move = petrify ? "petrify" : ready ?? fallback;
+    if (petrify || (enemy.atkT <= 0 && (move !== "melee" || gap <= 1e-9))) {
       const spec = move === "melee" ? def.melee : C().riftMoves[move];
       const aimed = move === "boulder" || move === "fireball" || move === "spike"
         ? chooseHero(run, () => true) : target;
@@ -962,6 +970,7 @@ DWR.Sim = (function () {
       enemy.walking = false;
       enemy.atkT = enemy.interval;
       enemy.attack = { riftMove: move, windup: spec.windup, recovery: spec.recovery, lockedTarget: aimed, t: 0, hit: false };
+      if (petrify) rift.petrifyUsed = true;
       soundCue(run, move === "melee" ? "swing" : move === "petrify" ? "guard" : move === "cloak" || move === "fireball" ? "castFire" : "castLight", enemy.x);
     } else if (!enemy.def.ranged && gap > 0) {
       const step = Math.min(gap, enemy.def.speed * dt);
@@ -1350,7 +1359,7 @@ DWR.Sim = (function () {
     if (run.over || !spendSkill(run, skillId, priest, "mana", { deferCooldown: true })) return false;
     const spec = C().skills[skillId];
     const name = skillId === "fireTornado" ? "attack" : "heal";
-    if (skillId === "fireTornado") priest.facing = 1;
+    if (skillId === "fireTornado") priest.facing = castDirection(priest, target);
     priest.attackPose = { name, duration: spec.castTime + spec.recovery, t: 0, spell: skillId, target };
     soundCue(run, skillId === "fireTornado" ? "castFire" : "castLight", priest.x);
     return true;
@@ -1380,7 +1389,8 @@ DWR.Sim = (function () {
       }
     } else {
       const damage = attackDamage(priest, spec.dmg + (run.stats.fireTornadoDamage || 0));
-      run.tornadoes.push({ caster: priest, origin: priest.x, x: priest.x, speed: spec.speed, damage, hit: new Set() });
+      run.tornadoes.push({ caster: priest, origin: priest.x, x: priest.x, direction: priest.facing,
+        speed: spec.speed, damage, hit: new Set() });
       soundCue(run, "tornado", priest.x);
     }
   }
@@ -1409,15 +1419,16 @@ DWR.Sim = (function () {
     return C().skills[id].radius + (run.stats[id + "Radius"] || 0);
   }
 
-  function canLaunchTornado(run, include = () => true) {
-    return run.enemies.some(enemy => vulnerable(enemy) && enemy.x >= run.heroes.priest.x && include(enemy));
+  function castDirection(caster, targetX) {
+    return Math.sign(targetX - caster.x) || caster.facing;
   }
 
   function useGround(run, skillId, x) {
     if (run.over || !inBattle(run) || !Number.isFinite(x) || x < 0 || x > C().canvas.w) return false;
     if (skillId === "fireTornado") {
-      if (!canLaunchTornado(run)) return false;
-      return beginPriestCast(run, skillId);
+      const priest = run.heroes.priest, direction = castDirection(priest, x);
+      if (!run.enemies.some(enemy => vulnerable(enemy) && (enemy.x - priest.x) * direction >= 0)) return false;
+      return beginPriestCast(run, skillId, x);
     }
     const spec = C().skills[skillId];
     if (spec?.type !== "ground" || !spec.stock || !canThrowBomb(run, skillId)) return false;

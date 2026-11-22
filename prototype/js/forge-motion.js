@@ -20,7 +20,14 @@ DWR.ForgeMotion = (function () {
       staff: { 0: [144, 101], 4: [123, 88], 5: [91, 113], 6: [144, 101], 11: [146, 59] },
       heights: [132, 104, 76, 46], bounds: [[136, 217], [118, 236], [89, 244], [109, 266]] },
     lich: { file: "crypt-lich.webp", castFrame: 11, escapeFrame: 12,
-      staff: { 0: [147, 86], 4: [121, 73], 5: [158, 84], 6: [147, 86], 11: [135, 63] } }
+      staff: { 0: [147, 86], 4: [121, 73], 5: [158, 84], 6: [147, 86], 11: [135, 63] } },
+    wolfhound: { file: "wilds-wolfhound.webp", heights: [132, 116, 90, 72],
+      bounds: [[86, 297], [84, 298], [75, 320], [55, 319]] },
+    werewolf: { file: "wilds-werewolf.webp", heights: [131, 105, 82, 47], fallOffset: 0.12,
+      bounds: [[150, 226], [97, 232], [116, 271], [86, 288]] },
+    lycan: { file: "wilds-lycan.webp", heights: [132, 121, 104, 69], fallOffset: 0.14,
+      bounds: [[129, 237], [111, 237], [104, 270], [76, 297]],
+      howl: { height: 147, muzzle: { 0: [137, 104], 11: [167, 65] } } }
   };
   const deathHeights = {
     "orc-shield": [120, 110, 98, 57],
@@ -35,7 +42,8 @@ DWR.ForgeMotion = (function () {
   const ease = value => value * value * (3 - 2 * value);
 
   function attackPose(attack) {
-    const pose = attack.heavy ? "smash" : attack.ritual || attack.buffing || attack.guarding ? "cast" : "attack";
+    const cast = attack.ritual || attack.buffing || attack.guarding;
+    const pose = attack.howling ? "howl" : attack.heavy ? "smash" : cast ? "cast" : "attack";
     // В момент попадания показан тот же кадр, из которого стартует снаряд.
     const poseT = attack.hit
       ? contact + (1 - contact) * clamp((attack.t - attack.windup) / attack.recovery)
@@ -48,7 +56,8 @@ DWR.ForgeMotion = (function () {
     const t = clamp(progress);
     if (pose === "walk") {
       const frame = steps[Math.floor(t * steps.length) % steps.length];
-      return { frame, stretch: 1 + Math.sin(t * Math.PI * 4) * 0.017, offset: 0 };
+      const spring = kind === "wolfhound" ? 0.032 : 0.017;
+      return { frame, stretch: 1 + Math.sin(t * Math.PI * 4) * spring, offset: 0 };
     }
     if (pose === "attack" || pose === "smash") {
       const smash = pose === "smash";
@@ -61,17 +70,25 @@ DWR.ForgeMotion = (function () {
       const frame = t < 0.16 ? 0 : t < 0.78 ? model?.castFrame ?? 4 : t < 0.94 ? 6 : 0;
       return { frame, stretch: 1, offset: 0 };
     }
+    if (pose === "howl") {
+      return { frame: t < 0.14 || t >= 0.86 ? 0 : 11, stretch: 1 + Math.sin(Math.PI * t) * 0.025, offset: 0 };
+    }
     if (pose === "escape") return { frame: t < 0.13 ? 0 : model?.escapeFrame ?? 0, stretch: 1, offset: 0 };
     if (pose === "dead") {
       const heights = model?.heights ?? deathHeights[kind];
       if (!heights) return { frame: 0, stretch: 1, offset: 0 };
-      const phase = ease(clamp(t / (kind === "goblinKing" ? 0.94 : 0.85))) * (fall.length - 1);
+      const brace = kind === "lycan" ? 0.27 : 0;
+      const land = kind === "lycan" ? DWR.CONFIG.enemies.lycan.death.land : kind === "goblinKing" ? 0.94 : 0.85;
+      const phase = ease(clamp((t - brace) / (land - brace))) * (fall.length - 1);
       const start = Math.floor(phase), end = Math.min(start + 1, fall.length - 1);
       const index = Math.round(phase);
       const height = heights[start] + (heights[end] - heights[start]) * (phase - start);
-      const stretch = Math.max(0.84, Math.min(1.18, height / heights[index]));
-      const slide = kind === "goblinKing" ? -0.09 : model ? 0.06 : 0.16;
-      return { frame: fall[index], stretch, offset: slide * phase / (fall.length - 1) };
+      // При покачивании меняем перспективу вокруг опоры. Корпус не заваливается на бок.
+      const sway = brace ? clamp(t / brace) : 0;
+      const pitch = Math.sin(sway * Math.PI * 2) * Math.sin(sway * Math.PI);
+      const stretch = Math.max(0.84, Math.min(1.18, height / heights[index])) - pitch * 0.055;
+      const slide = model?.fallOffset ?? (kind === "goblinKing" ? -0.09 : model ? 0.06 : 0.16);
+      return { frame: fall[index], stretch, spread: 1 + pitch * 0.12, offset: slide * phase / (fall.length - 1) };
     }
     return { frame: 0, stretch: 1, offset: 0 };
   }
@@ -79,19 +96,19 @@ DWR.ForgeMotion = (function () {
   function draw(ctx, atlas, { kind, x, y, h, facing = -1, pose = "idle", poseT = 0 }) {
     const model = models[kind];
     if (!atlas?.naturalWidth || (!model && !deathHeights[kind])) return;
-    const { frame, stretch, offset } = sample(kind, pose, poseT);
+    const { frame, stretch, offset, spread = 1 } = sample(kind, pose, poseT);
     const cell = model ? largeCell : forgeCell;
     const sx = (frame % cell.columns) * cell.w, sy = Math.floor(frame / cell.columns) * cell.h;
     const scale = h / cell.body;
     let origin = x + facing * offset * h;
     if (model?.bounds && pose === "dead") {
       const [left, right] = model.bounds[fall.indexOf(frame)];
-      const a = (left - cell.x) * -facing * scale, b = (right - cell.x) * -facing * scale;
+      const a = (left - cell.x) * -facing * scale * spread, b = (right - cell.x) * -facing * scale * spread;
       origin = Math.max(3 - Math.min(a, b), Math.min(origin, DWR.CONFIG.canvas.w - 3 - Math.max(a, b)));
     }
     ctx.save();
     ctx.translate(origin, y);
-    ctx.scale(-facing * scale, scale * stretch);
+    ctx.scale(-facing * scale * spread, scale * stretch);
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(atlas, sx, sy, cell.w, cell.h, -cell.x, -cell.feet, cell.w, cell.h);
     ctx.restore();
@@ -116,5 +133,14 @@ DWR.ForgeMotion = (function () {
     return atlasPoint(unit, staff[frame.frame], frame);
   }
 
-  return { draw, attackPose, bowRelease, staffPoint, atlasFile: kind => models[kind]?.file ?? `forge-${kind}.webp` };
+  function howlGeometry(unit) {
+    const howl = models[unit.kind]?.howl;
+    if (!howl || !unit.attack?.howling) return { x: unit.x, y: -unit.h * 0.84, height: unit.h };
+    const { pose, poseT } = attackPose(unit.attack);
+    const frame = sample(unit.kind, pose, poseT);
+    const body = frame.frame === 11 ? howl.height : largeCell.body;
+    return { ...atlasPoint(unit, howl.muzzle[frame.frame], frame), height: body * unit.h / largeCell.body * frame.stretch };
+  }
+
+  return { draw, attackPose, bowRelease, staffPoint, howlGeometry, atlasFile: kind => models[kind]?.file ?? `forge-${kind}.webp` };
 })();

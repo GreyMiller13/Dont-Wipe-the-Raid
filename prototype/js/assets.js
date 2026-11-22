@@ -8,6 +8,7 @@ DWR.Assets = (function () {
   // Версии загрузчика и графики независимы, чтобы обновление кода не сбрасывало кэш спрайтов.
   const versions = new URL(document.currentScript.src).searchParams;
   const version = versions.get("art"), heroVersion = versions.get("hero");
+  const menuVersion = versions.get("menu");
   // Ключи боевых спрайтов совпадают с kind юнита.
   const SPRITES = ["warrior", "priest", "priest-release", "ranger",
                    "warrior-body", "warrior-upper", "warrior-fore", "warrior-blade",
@@ -33,10 +34,11 @@ DWR.Assets = (function () {
     return im;
   }
   function assetUrl(src) {
-    const revision = /^(warrior|ranger|priest)-/.test(src) ? heroVersion ?? version : version;
+    const revision = src.startsWith("menu-") ? menuVersion ?? version
+      : /^(warrior|ranger|priest)-/.test(src) ? heroVersion ?? version : version;
     return DIR + src + (revision ? "?v=" + encodeURIComponent(revision) : "");
   }
-  const iconFile = id => "icon-" + id + ".png";
+  const iconFile = id => "skills/" + id + ".webp";
   function done() { ready = true; cbs.splice(0).forEach(cb => cb()); }
   const artIds = rooms => new Set(rooms.map(room => room.art ?? room.id));
   const roomFile = art => typeof art === "string" ? "../backgrounds/" + art + ".webp" : "room" + art + ".jpg";

@@ -1,0 +1,281 @@
+.bestiary-page {
+  box-sizing: border-box;
+  display: grid;
+  height: 100%;
+  padding-block: 40px;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 26px;
+}
+
+.bestiary-layout {
+  display: grid;
+  grid-template-columns: 328px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 16px;
+  min-height: 0;
+}
+
+.bestiary-index,
+.bestiary-details {
+  overflow: auto;
+  scrollbar-color: #806447 #181720;
+  border: 1px solid #514653;
+  border-radius: 12px;
+  background: #181820;
+}
+
+.bestiary-index {
+  padding: 16px;
+}
+
+.bestiary-group + .bestiary-group {
+  margin-top: 22px;
+}
+
+.bestiary-group h3 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 9px;
+  padding: 0 2px;
+  font: 400 19px/1.25 var(--display);
+  color: #f5dec0;
+}
+
+.bestiary-group h3 span {
+  white-space: nowrap;
+  color: var(--muted);
+  font: 500 12px "Segoe UI", sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.bestiary-cards {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bestiary-card {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 4px 8px;
+  border: 1px solid #514653;
+  border-radius: 7px;
+  background: #22212b;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 650;
+  text-align: left;
+}
+
+button.bestiary-card {
+  cursor: pointer;
+}
+
+button.bestiary-card:hover,
+.bestiary-card[aria-pressed="true"] {
+  border-color: #b99161;
+  background: linear-gradient(120deg, #433127, #29242b);
+}
+
+.bestiary-card[aria-pressed="true"] {
+  box-shadow: inset 3px 0 #e5b575;
+}
+
+.bestiary-card small {
+  display: block;
+  margin-top: 2px;
+  color: #e5b575;
+  font-size: 12px;
+}
+
+.bestiary-thumb {
+  display: grid;
+  flex: 0 0 42px;
+  height: 42px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 5px;
+  background: radial-gradient(ellipse at 50% 60%, #4a3635, #241f29);
+}
+
+.bestiary-thumb img {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 3px #0009);
+}
+
+.bestiary-unknown {
+  border-color: #3b3541;
+  background: #1d1c25;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.bestiary-unknown .bestiary-thumb {
+  background: #27242e;
+  color: #b9a99c;
+  font: 400 26px var(--display);
+}
+
+.bestiary-details {
+  box-sizing: border-box;
+  align-self: start;
+  max-height: 100%;
+  padding: 23px 25px;
+  background: linear-gradient(150deg, #28242d, #191820 60%);
+}
+
+.bestiary-details:has(.bestiary-empty) {
+  align-self: stretch;
+}
+
+.bestiary-empty {
+  display: grid;
+  height: 100%;
+  align-content: center;
+  justify-items: center;
+  gap: 9px;
+  text-align: center;
+}
+
+.bestiary-empty img {
+  width: 72px;
+  margin-bottom: 4px;
+}
+
+.bestiary-empty h3,
+.bestiary-entry-header h3 {
+  margin: 0;
+  color: #f8e7d0;
+  font: 400 34px/1.13 var(--display);
+}
+
+.bestiary-empty p,
+.bestiary-entry-header p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.bestiary-entry-header p {
+  margin-bottom: 5px;
+  color: #dfb786;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.bestiary-entry-body {
+  display: grid;
+  grid-template-columns: 244px minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+  margin-top: 17px;
+}
+
+.bestiary-portrait {
+  --scene-floor: .75; /* Пол на исходном фоне — 540 из 720. */
+  --portrait-floor: 96%;
+  position: relative;
+  height: 282px;
+  margin: 0;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid #745a4a;
+  border-radius: 8px;
+  background: #17151c;
+}
+
+.bestiary-habitat {
+  position: absolute;
+  top: 0;
+  inset-inline: 0;
+  width: 100%;
+  height: calc(var(--portrait-floor) / var(--scene-floor));
+  object-fit: cover;
+  opacity: .38;
+}
+
+.bestiary-portrait::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background: radial-gradient(ellipse at 50% 56%, #f0ac6240, transparent 65%),
+    linear-gradient(0deg, #15131ca8, transparent 33%);
+}
+
+.bestiary-figure {
+  position: absolute;
+  z-index: 1;
+  left: 8%;
+  bottom: calc(100% - var(--portrait-floor));
+  width: 84%;
+  height: 72%;
+  object-fit: contain;
+  object-position: center bottom;
+  filter: drop-shadow(0 8px 9px #000b);
+}
+
+.bestiary-notes {
+  font-size: 14px;
+  line-height: 1.48;
+  color: #ded4cb;
+}
+
+.bestiary-notes p,
+.bestiary-notes dl,
+.bestiary-notes dd {
+  margin: 0;
+}
+
+.bestiary-notes .bestiary-bio {
+  margin-bottom: 13px;
+  color: #f2e7db;
+  font-size: 15px;
+}
+
+.bestiary-chapter {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #463e46;
+}
+
+.bestiary-chapter + .bestiary-chapter {
+  margin-top: 15px;
+}
+
+.bestiary-topic,
+.bestiary-chapter-title {
+  margin: 0 0 3px;
+  color: #ecc18c;
+  font: 600 14px "Segoe UI", sans-serif;
+}
+
+.bestiary-chapter-title {
+  color: #f8e7d0;
+  font: 400 19px var(--display);
+}
+
+.bestiary-chapter dt {
+  color: #f2e7db;
+  font-weight: 650;
+}
+
+.bestiary-chapter dd + dt {
+  margin-top: 4px;
+}
+
+.bestiary-advice {
+  padding: 8px 12px;
+  border-left: 2px solid #ac8056;
+  border-radius: 4px;
+  background: #c8975520;
+}

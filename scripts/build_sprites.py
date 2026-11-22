@@ -885,46 +885,7 @@ def save_skill_icons():
 save_skill_icons()
 
 
-def save_menu_icons():
-    gold = "#ffe0a2"
-    light = "#fff4da"
-
-    def save(icon, name):
-        icon.resize((32, 32), Image.Resampling.NEAREST).save(os.path.join(OUT, f"menu-{name}.png"))
-
-    sword = [(12, 1), (15, 0), (14, 3), (7, 10), (9, 12), (8, 13),
-             (5, 11), (2, 15), (0, 13), (4, 9), (2, 7), (3, 6), (5, 8)]
-    crossed = Image.new("RGBA", (16, 16))
-    draw = ImageDraw.Draw(crossed)
-    draw.polygon([(15 - x, y) for x, y in sword], fill="#caaa79")
-    draw.polygon(sword, fill=gold)
-    draw.line((5, 8, 12, 1), fill=light)
-    draw.line((3, 1, 6, 4), fill=gold)
-    save(crossed, "new")
-
-    book = Image.new("RGBA", (16, 16))
-    draw = ImageDraw.Draw(book)
-    draw.polygon([(7, 3), (4, 1), (0, 1), (0, 12), (4, 12), (7, 14), (8, 14),
-                  (11, 12), (15, 12), (15, 1), (11, 1), (8, 3)], fill=gold)
-    draw.line((7, 4, 7, 12), fill="#81603b")
-    draw.line([(2, 5), (4, 5), (5, 6)], fill="#74583b")
-    draw.line([(2, 8), (4, 8), (5, 9)], fill="#74583b")
-    draw.polygon([(10, 3), (13, 2), (13, 8), (12, 6), (10, 8)], fill="#a8553c")
-    save(book, "continue")
-
-    gear = Image.new("RGBA", (16, 16))
-    draw = ImageDraw.Draw(gear)
-    draw.polygon([(6, 0), (9, 0), (9, 2), (11, 3), (13, 1), (14, 3), (12, 5),
-                  (13, 6), (15, 6), (15, 9), (13, 9), (12, 11), (14, 13), (12, 14),
-                  (10, 12), (9, 13), (9, 15), (6, 15), (6, 13), (4, 12), (2, 14),
-                  (1, 12), (3, 10), (2, 9), (0, 9), (0, 6), (2, 6), (3, 4), (1, 2),
-                  (3, 1), (5, 3), (6, 2)], fill=gold)
-    draw.ellipse((5, 5, 10, 10), fill=(0, 0, 0, 0))
-    draw.arc((3, 3, 12, 12), 190, 315, fill=light, width=1)
-    save(gear, "settings")
-
-
-save_menu_icons()
+# Иконки меню и портреты бестиария хранятся в out/ в готовом виде.
 
 # --- Предметы: сундук анфас с общей опорой для обеих поз и монета ----------------------------
 
