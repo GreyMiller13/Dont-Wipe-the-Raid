@@ -320,7 +320,7 @@ DWR.Chars = (function () {
     return { elbow, hand: limbEnd(...elbow, 10.9, fore) };
   }
 
-  function drawWarrior(ctx, unit, pose, time) {
+  function drawWarrior(ctx, unit, pose) {
     const body = DWR.Assets.img["warrior-body"];
     const upper = DWR.Assets.img["warrior-upper"], fore = DWR.Assets.img["warrior-fore"];
     const blade = DWR.Assets.img["warrior-blade"];
@@ -334,14 +334,13 @@ DWR.Chars = (function () {
     const [baseArm, baseForearm, baseSword, lean] = warriorPose(swinging ? progress : 0);
     const arm = baseArm + stride * 0.16, forearm = baseForearm + stride * 0.10, sword = baseSword + stride * 0.095;
     const { elbow, hand } = warriorGrip(arm, forearm);
-    const bob = swinging || walking || pose === "frozen" ? 0 : unit.h * Math.sin(time * 2 + unit.x * 0.013) * 0.006;
     const scale = unit.h / WARRIOR_RIG_BODY_PX;
     // Геометрия анимации остаётся в исходных координатах, растр вдвое плотнее.
     const w = body.naturalWidth, h = body.naturalHeight;
     const logicalW = w / HERO_COMBAT_DENSITY, logicalH = h / HERO_COMBAT_DENSITY;
 
     ctx.save();
-    ctx.translate(unit.x, unit.y + bob);
+    ctx.translate(unit.x, unit.y);
     ctx.scale(facing(unit) * scale, scale);
     if (lean) ctx.rotate(lean);
     ctx.translate(-logicalW / 2, -(logicalH - BOTTOM_PAD));
@@ -440,7 +439,7 @@ DWR.Chars = (function () {
     const A = DWR.Assets;
     if (!A.ready) return;
     const pose = unit.pose || "idle";
-    if (unit.kind === "warrior" && pose !== "dead" && drawWarrior(ctx, unit, pose, time)) return;
+    if (unit.kind === "warrior" && pose !== "dead" && drawWarrior(ctx, unit, pose)) return;
     const baseImage = A.img[unit.kind];
     const enemy = DWR.CONFIG.enemies[unit.kind];
     if (enemy?.rift) {
@@ -504,7 +503,7 @@ DWR.Chars = (function () {
     }
 
     let bob = 0, lean = 0;
-    if (pose === "idle") bob = Math.sin(time * 2 + unit.x * 0.013) * h * 0.008;
+    if (pose === "idle" && !hero) bob = Math.sin(time * 2 + unit.x * 0.013) * h * 0.008;
     else if (pose === "walk") {
       bob = Math.abs(Math.sin(progress * Math.PI * 2)) * h * 0.022;
       lean = 0.07;

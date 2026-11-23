@@ -10,7 +10,7 @@ DWR.Panel = (function () {
 
   const RES_COLOR = { rage: "#eb9478", focus: "#91cd94", mana: "#a6b8ff" };
   const RES_NAME = { rage: "ярость", focus: "фокус", mana: "мана" };
-  const LABEL = { powerStrike: "Удар", block: "Блок", multishot: "Мультивыстрел",
+  const LABEL = { powerStrike: "Удар", block: "Блок", taunt: "Провокация", multishot: "Мультивыстрел",
     preciseShot: "Меткий", heal: "Лечение", fireball: "Фаербол", potion: "Зелье",
     dispel: "Рассеивание", massHeal: "Масс. лечение", fireTornado: "Смерч", sacrifice: "Жертвенность", bomb: "Бомба",
     noiseBomb: "Шумовая бомба", righteousFury: "Праведная ярость" };
@@ -61,14 +61,10 @@ DWR.Panel = (function () {
 
   function actionHint(skill, auto) {
     if (!skill) return "Нажмите или перетащите навык";
-    if (skill.type === "auto") return "ЛКМ включает или отключает авто";
-    if (skill.auto && skill.type === "instant") return "ЛКМ переключает авто · ПКМ применяет навык";
-    if (auto && skill.manualWhileAuto === false) return "ЛКМ отключает авто · Цель — ближайший враг";
-    const verb = skill.type === "instant" ? "ЛКМ применяет навык"
-      : skill.type === "ground" ? "Перетащите на поле боя"
-      : skill.targetEnemies ? "Перетащите на героя или противника"
-      : "Перетащите на " + (["ally", "potion"].includes(skill.type) ? "героя" : "врага");
-    return skill.auto ? "ЛКМ переключает авто · " + verb : verb;
+    if (skill.type === "auto") return "ПКМ — переключить авто";
+    if (auto && skill.manualWhileAuto === false) return "ПКМ — отключить авто для ручного применения";
+    const action = skill.type === "instant" ? "ЛКМ — применить" : "ЛКМ — прицел или перетаскивание";
+    return skill.auto ? action + " · ПКМ — переключить авто" : action;
   }
 
   function draw(ctx, run) {
@@ -81,7 +77,9 @@ DWR.Panel = (function () {
     ctx.textAlign = "left"; ctx.font = "600 16px Segoe UI"; ctx.fillStyle = "#f5eee5";
     ctx.fillText("Панель навыков", 55, 593);
     ctx.font = "13px Segoe UI"; ctx.fillStyle = "#b0aaba";
-    ctx.fillText(actionHint(DWR.CONFIG.skills[hoveredSkill], run.sim.autoSkills.has(hoveredSkill)), 218, 593);
+    const hint = run.aim && !run.aim.press ? "Esc — отменить прицеливание"
+      : actionHint(DWR.CONFIG.skills[hoveredSkill], run.sim.autoSkills.has(hoveredSkill));
+    ctx.fillText(hint, 218, 593);
 
     for (let i = 0; i < run.tempPanel.length; i++) {
       const r = slotRect(run, i), id = run.tempPanel[i];
@@ -91,7 +89,7 @@ DWR.Panel = (function () {
       ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 8);
       ctx.fillStyle = auto ? "#252d32" : id ? "#22232f" : "#15161e";
       ctx.fill();
-      ctx.strokeStyle = hovering ? "#ffd092" : auto ? "#90bd9d" : id ? "#454451" : "#393a47";
+      ctx.strokeStyle = hovering || run.aim?.slot === i ? "#ffd092" : auto ? "#90bd9d" : id ? "#454451" : "#393a47";
       if (!id) ctx.setLineDash([4, 4]);
       ctx.stroke();
       ctx.setLineDash([]);
@@ -131,5 +129,5 @@ DWR.Panel = (function () {
     }
   }
 
-  return { draw, drawIcon, slotAt, equipRunSkill, slotUsable, Y0 };
+  return { draw, drawIcon, actionHint, slotAt, equipRunSkill, slotUsable, Y0 };
 })();

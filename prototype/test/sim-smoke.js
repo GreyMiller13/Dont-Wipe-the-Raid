@@ -94,7 +94,7 @@ check("лечение выбирает меньшее текущее HP и тр�
   ranger.hp === ranger.maxHp && warrior.hp === warrior.maxHp - 6 && priest.mana === priest.manaMax - heal.cost);
 check("лечение уходит на перезарядку", S.skillStatus(run, "heal").left === DWR.CONFIG.heroes.priest.healCD);
 check("руна открывает фаербол и ставит его в свободный слот", DWR.State.buyNode("fireball") &&
-  DWR.State.data.runes === 0 && DWR.State.data.panel[1] === "fireball" && !DWR.State.nodeBuyable("fireball"));
+  DWR.State.data.runes === 0 && DWR.State.data.panel[2] === "fireball" && !DWR.State.nodeBuyable("fireball"));
 run.equipped.add("fireball");
 S.setAuto(run, "fireball", true);
 S.tick(run, heal.animation);
@@ -634,36 +634,72 @@ check("при живом боссе тыловой мечник останавл
   flankingSkeleton.x < formationRanger.x && formationRanger.hp < formationRanger.maxHp);
 
 frontBoss.alive = false;
-formationTank.atkT = 0;
-const rearHpAfterBoss = formationRanger.hp;
-stepFor(run, 2.5);
-check("после босса мечник остаётся перед лучником, воин держит строй за жрицей",
-  flankingSkeleton.x < formationRanger.x && formationRanger.hp < rearHpAfterBoss &&
-  formationTank.hp === formationTank.maxHp && formationTank.facing === -1 &&
-  near(formationTank.x, formationPriest.x + DWR.CONFIG.battle.warriorRearGap) && !formationTank.walking);
-run.equipped.add("powerStrike");
-formationTank.rage = 100;
-check("союзники перекрывают воину цель даже при ручном выборе Мощного удара",
-  !S.canWarriorTarget(run, flankingSkeleton) && !S.useTargeted(run, "powerStrike", flankingSkeleton.uid) &&
-  formationTank.rage === 100 && flankingSkeleton.hp === flankingSkeleton.maxHp);
-
 formationRanger.alive = false;
-stepFor(run, 2.5);
-check("при гибели лучника мечник подходит к жрице и останавливается перед ней",
-  flankingSkeleton.x > formationRanger.x && flankingSkeleton.x < formationPriest.x &&
-  formationPriest.hp < formationPriest.maxHp && formationTank.hp === formationTank.maxHp);
-formationPriest.alive = false;
-stepFor(run, 2);
-check("когда задний ряд пал, воин подходит и бьёт оставшегося врага слева",
-  formationTank.x < formationPriest.x + DWR.CONFIG.battle.warriorRearGap &&
-  flankingSkeleton.hp < flankingSkeleton.maxHp);
+formationTank.atkT = 0;
+stepFor(run, 0.2);
+check("после босса воин уходит вглубь сцены для обхода живой жрицы",
+  S.bypassFloorOffset(formationTank) < 0 && formationTank.facing === -1 && !S.canWarriorTarget(run, flankingSkeleton));
+
+stepFor(run, 4);
+check("воин выходит перед жрицей, перехватывает следующие удары и ранит тылового мечника",
+  formationTank.x < formationPriest.x && flankingSkeleton.x < formationTank.x && !formationTank.bypass &&
+  formationPriest.alive && formationTank.hp < formationTank.maxHp && flankingSkeleton.hp < flankingSkeleton.maxHp);
+const priestHpWhileCovered = formationPriest.hp, tankHpWhileCovering = formationTank.hp;
+stepFor(run, flankingSkeleton.interval);
+check("после обхода мечник продолжает бить воина, а жрица защищена",
+  formationPriest.hp === priestHpWhileCovered && formationTank.hp < tankHpWhileCovering);
+flankingSkeleton.alive = false;
+stepFor(run, 4);
+check("после зачистки воин возвращается вправо в походный строй",
+  formationTank.x > formationPriest.x && formationTank.facing === 1 &&
+  !formationTank.returnToFormation && !formationTank.bypass);
+
+State.reset();
+run = prepareForge(crypt.rooms.at(-1));
+const tauntBoss = run.enemies[0];
+const { warrior: tauntWarrior, priest: tauntPriest, ranger: tauntRanger } = run.heroes;
+stepFor(run, tauntBoss.def.summon.seconds + 0.1);
+const tauntedFoes = run.enemies.slice(1, 3);
+for (const foe of tauntedFoes) {
+  foe.x = tauntRanger.x - 95;
+  foe.flanking = true;
+  foe.appearT = 0;
+  foe.atkT = foe.def.attack?.windup ?? (foe.def.ranged ? 0.55 : 0.42);
+}
+S.tick(run, 0);
+check("оба скелета успели начать атаку на лучника до провокации",
+  tauntedFoes.every(foe => foe.attack?.startedOn === tauntRanger));
+tauntWarrior.rage = 24;
+check("провокация доступна изначально и требует 25 ярости",
+  State.nodeCount("taunt") === 1 && State.hasSkill("taunt") && run.equipped.has("taunt") &&
+  !S.useInstant(run, "taunt") && tauntWarrior.rage === 24);
+tauntWarrior.rage = 50;
+check("провокация расходует 25 ярости, запускает 25 секунд перезарядки и помечает текущих врагов",
+  S.useInstant(run, "taunt") && tauntWarrior.rage === 25 && S.skillStatus(run, "taunt").left === 25 &&
+  run.enemies.every(foe => foe.taunted) && !S.useInstant(run, "taunt"));
+stepFor(run, 0.6);
+check("начатый удар попадает в лучника, смена цели ждёт конца атаки",
+  tauntRanger.hp < tauntRanger.maxHp && tauntedFoes.every(foe => foe.taunted));
+stepFor(run, 0.8);
+check("тыловые мечник и стрелок уходят вглубь сцены даже при живом личе",
+  tauntBoss.alive && !tauntWarrior.returnToFormation && tauntedFoes.every(foe => S.bypassFloorOffset(foe) < 0));
+stepFor(run, 4);
+check("оба скелета обходят героев и тратят провокацию на атаки по воину",
+  tauntedFoes.every(foe => foe.x > tauntPriest.x && !foe.taunted && !foe.bypass) &&
+  run.combatRoom.heroes.warrior.healingReceived === 0 && tauntWarrior.hp < tauntWarrior.maxHp &&
+  tauntPriest.hp === tauntPriest.maxHp);
+
+State.data.coins = 1000;
+check("узлы провокации улучшают её базовые параметры",
+  State.buyNode("tauntHaste") && State.buyNode("tauntCost") &&
+  S.skillStatus(S.createRun(), "taunt").duration === 23 && S.skillStatus(S.createRun(), "taunt").cost === 22);
 
 State.reset();
 State.data.coins = 20000;
 State.data.runes = 4;
 check("Праведная ярость и Шумовая бомба скрыты до открытия родительских навыков",
   !State.nodeUnlocked("righteousFury") && !State.nodeUnlocked("noiseBomb"));
-for (const id of ["block", "righteousFury", "bomb", "noiseBomb"]) State.buyNode(id);
+for (const id of ["panelSlots", "block", "righteousFury", "bomb", "noiseBomb"]) State.buyNode(id);
 run = prepareForge(rangedRoom);
 const furyWarrior = run.heroes.warrior;
 furyWarrior.rage = 40;
@@ -775,6 +811,10 @@ check("сброс возвращает покупки за вычетом пла
   state.data.panel[0] === "heal" && state.locationCleared("dungeon"));
 state.load();
 check("цена следующего сброса сохраняется и возрастает на 25%", state.skillResetInfo().cost === 125 && !state.resetSkills());
+savedRaidState = JSON.stringify({ started: true, panel: ["heal", null, null, null, null] });
+state.load();
+check("в старом сохранении провокация изучена, а выбранные игроком слоты сохранены",
+  state.nodeCount("taunt") === 1 && state.hasSkill("taunt") && !state.data.panel.includes("taunt"));
 savedRaidState = JSON.stringify({ started: true, coins: 200, runes: 0, upgrades: { powerStrike: 1, wDmg: 2 } });
 state.load();
 check("старое сохранение без истории покупок возвращает стоимость известных рангов",

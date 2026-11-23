@@ -28,7 +28,7 @@ DWR.Upgrade = (function () {
     powerStrikeCost: "efficiency", powerStrikeRefund: "burst", blockDur: "shield", blockHaste: "hourglass",
     blockCost: "efficiency", blockHeal: "heart", wHp: "heart", wArmor: "armor", wRageKill: "flame", wRageRegen: "cycle",
     sacrificeDuration: "shield", sacrificeHaste: "hourglass", dispelCost: "efficiency", dispelHaste: "hourglass",
-    righteousFuryHeal: "heart", righteousFuryCost: "efficiency",
+    righteousFuryHeal: "heart", righteousFuryCost: "efficiency", tauntHaste: "hourglass", tauntCost: "efficiency",
     healPow: "heal", healHaste: "hourglass", healCost: "efficiency", healWard: "shield", healOverflow: "heart",
     fireDmg: "fireball", fireballHaste: "hourglass", fireballCost: "spark", fireballBlast: "burst",
     massHealPower: "glow", massHealCost: "efficiency", massHealHaste: "hourglass",
@@ -59,6 +59,7 @@ DWR.Upgrade = (function () {
     block: "M12 2l8 3v6q0 7-8 11-8-4-8-11V5zM12 6l4 2v3q0 4-4 7-4-3-4-7V8z",
     sacrifice: "M12 3l8 3v5q0 7-8 10-8-3-8-10V6zM8 12l3 3 5-6",
     righteousFury: "M12 2c-4 6 0 7-4 9l-3-3c-3 7 1 13 7 13 6 0 9-6 5-12l-1 3c-1-4-4-5-4-10zM12 13v6m-3-3h6",
+    taunt: "M12 4v10m0 4v2M7 6 4 9v6l3 3m10-12 3 3v6l-3 3M3 5l-2 3v8l2 3M21 5l2 3v8l-2 3",
     dispel: "M4 19 18 5m-5 0h5v5M5 7l3 3m-5 4h4m10 3 3 3m-9-1v3",
     massHeal: "M10 4h4v6h6v4h-6v6h-4v-6H4v-4h6zM4 4v4m-2-2h4m14 12v4m-2-2h4",
     fireTornado: "M3 4c0 5 18 5 18 0M6 10c0 5 12 5 12 0M9 16c0 5 6 5 6 0m-3 1v5",
@@ -96,6 +97,7 @@ DWR.Upgrade = (function () {
   const glyphs = new Map();
   const camera = { x: 0, y: 0, scale: 1, overview: true };
   let selectedId = null;
+  let pinned = false;
   let world;
 
   function escapeHtml(value) {
@@ -257,21 +259,26 @@ DWR.Upgrade = (function () {
         return `<div class="up-vertex up-branch" style="${style}">${image}<h3 class="up-node-label">${name}</h3></div>`;
       }
       const node = S.nodeDef(id), count = S.nodeCount(id);
+      const buyable = S.nodeBuyable(id);
+      const rune = buyable && S.nodeCurrency(id) === "runes";
       const label = count >= node.max && node.max === 1 ? "Изучено" : count + " / " + node.max;
       const state = count >= node.max ? "full" : count > 0 ? "learned"
-        : S.nodeBuyable(id) ? "buyable" : "open";
+        : buyable ? "buyable" : "open";
       const icon = skillIcon(node, owner);
       const active = DWR.nodeHeroSkill(node) ? " up-socket-active" : "";
       const tierLabel = node.tier === 2 ? " · Тир II" : "";
+      const availability = buyable ? ` · Доступно за ${rune ? "руны" : "монеты"}` : "";
       return `<button class="up-vertex up-socket up-socket-${state}${active}" data-node="${id}" style="${style}"
-          title="${name}${tierLabel} · ${label}" aria-label="${name}${tierLabel} · ${label}" aria-pressed="${id === selectedId}">
+          aria-label="${name}${tierLabel} · ${label}${availability}" aria-current="${id === selectedId}"
+          aria-pressed="${pinned && id === selectedId}" aria-controls="up-details">
           ${node.tier === 2 ? '<span class="up-tier-mark" aria-hidden="true">II</span>' : ""}
-          ${icon}${count > 0 ? `<small aria-hidden="true">${count}/${node.max}</small>` : ""}</button>`;
+          ${icon}${count > 0 ? `<small aria-hidden="true">${count}/${node.max}</small>` : ""}
+          ${buyable ? `<img class="up-currency-badge" src="assets/out/${rune ? "rune" : "coin"}.png" alt="" draggable="false">` : ""}</button>`;
     }).join("");
   }
 
   function renderDetails() {
-    if (!selectedId) return '<p class="up-detail-empty">Выберите навык, чтобы узнать его эффект и стоимость.</p>';
+    if (!selectedId) return "";
     const node = S.nodeDef(selectedId);
     const { owner, group } = world.skills.get(selectedId);
     const theme = COLORS[owner];
@@ -281,8 +288,9 @@ DWR.Upgrade = (function () {
       action = '<div class="up-requirement up-complete">✓ Изучено полностью</div>';
     } else {
       const price = S.nodePrice(node.id), buyable = S.nodeBuyable(node.id), rune = S.nodeCurrency(node.id) === "runes";
-      const label = rune ? (buyable ? "Открыть" : "Нужна руна") : (buyable ? "Купить" : "Не хватает монет");
-      action = `<button class="btn btn-gold up-buy"${buyable ? "" : " disabled"}>${label}
+      const label = buyable ? (pinned ? (rune ? "Открыть" : "Купить") : "Закрепите навык")
+        : rune ? "Нужна руна" : "Не хватает монет";
+      action = `<button class="btn btn-gold up-buy"${pinned && buyable ? "" : " disabled"}>${label}
         <span><img src="assets/out/${rune ? "rune" : "coin"}.png" alt="${rune ? "Руны навыков" : "Монеты"}">${price.toLocaleString("ru-RU")}</span></button>`;
     }
     return `<section class="up-detail" style="--branch:${theme.color};--branch-line:${theme.line}">
@@ -457,6 +465,7 @@ DWR.Upgrade = (function () {
     world = layoutWorld();
     if (selectedId && !world.skills.has(selectedId)) {
       selectedId = null;
+      pinned = false;
       camera.overview = true;
     }
     if (previous && !camera.overview) {
@@ -482,6 +491,7 @@ DWR.Upgrade = (function () {
               <div class="up-help-toast" id="up-help-toast" role="status" hidden>
                 <p>Кнопки «−», «+» и колесо мыши меняют масштаб.</p>
                 <p>Зажмите ЛКМ и потяните, чтобы переместиться.</p>
+                <p>ЛКМ по навыку закрепляет карточку, ПКМ снимает фиксацию.</p>
               </div>
             </div>
           </div>
@@ -502,13 +512,14 @@ DWR.Upgrade = (function () {
             <canvas class="up-links" aria-hidden="true" width="${world.width * 2}" height="${world.height * 2}"></canvas>${renderWorld()}
           </div>
         </div>
-        <div class="up-details">${renderDetails()}</div>
+        <div class="up-details" id="up-details">${renderDetails()}</div>
       </main>
       ${resetDialog()}`;
     el.querySelector(".up-map").style.setProperty("--up-map-background", `url("${BACKGROUND_URL}")`);
     drawLinks(el.querySelector(".up-links"));
     bindCamera(el);
-    bindHelp(el.querySelector(".up-tree-page"));
+    const page = el.querySelector(".up-tree-page");
+    bindHelp(page);
     el.querySelector(".up-back").addEventListener("click", () => DWR.showScreen("location"));
     const confirmReset = el.querySelector("#up-reset-dialog");
     el.querySelector(".up-reset").addEventListener("click", () => confirmReset.showModal());
@@ -516,23 +527,52 @@ DWR.Upgrade = (function () {
       if (!S.resetSkills()) return;
       confirmReset.close();
       selectedId = null;
+      pinned = false;
       camera.overview = true;
       redraw();
       el.querySelector(".up-reset").focus({ preventScroll: true });
     });
     const details = el.querySelector(".up-details");
-    el.querySelector(".up-world").addEventListener("click", event => {
-      const socket = event.target.closest("[data-node]");
-      if (!socket || selectedId === socket.dataset.node) return;
-      el.querySelector('[data-node][aria-pressed="true"]')?.setAttribute("aria-pressed", "false");
+    const mapWorld = el.querySelector(".up-world");
+    function showNode(socket, pin = false) {
+      if (!socket || (selectedId === socket.dataset.node && pinned === pin)) return;
+      const previous = mapWorld.querySelector('[aria-current="true"]');
+      previous?.setAttribute("aria-current", "false");
+      previous?.setAttribute("aria-pressed", "false");
       selectedId = socket.dataset.node;
-      socket.setAttribute("aria-pressed", "true");
+      pinned = pin;
+      socket.setAttribute("aria-current", "true");
+      socket.setAttribute("aria-pressed", pin);
       details.innerHTML = renderDetails();
+    }
+    mapWorld.addEventListener("pointerover", event => {
+      if (!pinned && event.pointerType !== "touch" && event.buttons === 0) showNode(event.target.closest("[data-node]"));
+    });
+    mapWorld.addEventListener("focusin", event => {
+      if (!pinned && event.target.matches("[data-node]:focus-visible")) showNode(event.target);
+    });
+    mapWorld.addEventListener("click", event => {
+      const socket = event.target.closest("[data-node]");
+      if (!socket) return;
+      showNode(socket, true);
+      if (event.detail === 0) details.querySelector(".up-buy:not(:disabled)")?.focus({ preventScroll: true });
+    });
+    function unpinNode(event) {
+      if (!pinned) return;
+      event.preventDefault();
+      const restoreFocus = details.contains(document.activeElement);
+      const socket = event.target.closest("[data-node]") ?? mapWorld.querySelector('[aria-pressed="true"]');
+      showNode(socket);
+      if (restoreFocus) socket.focus({ preventScroll: true });
+    }
+    page.addEventListener("contextmenu", unpinNode);
+    page.addEventListener("keydown", event => {
+      if (event.key === "Escape") unpinNode(event);
     });
     details.addEventListener("click", event => {
-      if (!event.target.closest(".up-buy") || !S.buyNode(selectedId)) return;
+      if (!pinned || !event.target.closest(".up-buy") || !S.buyNode(selectedId)) return;
       redraw();
-      (el.querySelector(".up-buy:not(:disabled)") || el.querySelector('[data-node][aria-pressed="true"]')).focus({ preventScroll: true });
+      (el.querySelector(".up-buy:not(:disabled)") || el.querySelector('[data-node][aria-current="true"]')).focus({ preventScroll: true });
     });
   }
 

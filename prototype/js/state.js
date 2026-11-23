@@ -4,6 +4,7 @@ window.DWR = window.DWR || {};
 
 DWR.State = (function () {
   const KEY = () => DWR.CONFIG.saveKey;
+  const startingPanel = ["heal", "taunt"];
   const nodes = new Map(Object.values(DWR.CONFIG.trees).flatMap(tree =>
     tree.branches.flatMap(branch => branch.nodes.map(node => [node.id, node]))));
   // Цены для расчёта возврата в сохранениях без журнала покупок.
@@ -41,7 +42,7 @@ DWR.State = (function () {
       upgradeSpent: null,      // фактически вложенные монеты и руны
       skillResets: 0,
       autoSkills: {},
-      panel: Array.from({ length: DWR.CONFIG.skillBar.baseSlots }, (_, i) => i === 0 ? "heal" : null),
+      panel: Array.from({ length: DWR.CONFIG.skillBar.baseSlots }, (_, i) => startingPanel[i] ?? null),
       location1Done: false,
       cryptDone: false,
       wildsDone: false,
@@ -154,7 +155,10 @@ DWR.State = (function () {
   // --- Узлы дерева ---
   function nodeDef(id) { return nodes.get(id) ?? null; }
   function nodeCount(id) {
-    return Math.min(nodeDef(id)?.max ?? 0, data.upgrades[id] ?? (id === "heal" ? 1 : 0));
+    const node = nodeDef(id);
+    if (!node) return 0;
+    const innate = DWR.CONFIG.skills[DWR.nodeHeroSkill(node)]?.innate;
+    return innate ? 1 : Math.min(node.max, data.upgrades[id] ?? 0);
   }
   function nodePrice(id) {
     const def = nodeDef(id);
@@ -190,7 +194,8 @@ DWR.State = (function () {
 
   function skillResetInfo() {
     const cost = Math.ceil(100 * 1.25 ** data.skillResets);
-    const hasPurchases = [...nodes.keys()].some(id => id !== "heal" && nodeCount(id) > 0);
+    const hasPurchases = [...nodes.values()].some(node => data.upgrades[node.id] > 0 &&
+      !DWR.CONFIG.skills[DWR.nodeHeroSkill(node)]?.innate);
     return { cost, invested: treeInvestment(), hasPurchases, affordable: data.coins >= cost };
   }
 

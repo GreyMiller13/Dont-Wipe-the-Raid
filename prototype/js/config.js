@@ -232,6 +232,7 @@ DWR.CONFIG = {
     powerStrike: { name: "Мощный удар", owner: "warrior", type: "targeted", cost: 50, res: "rage", dmg: 40, cooldown: 6.5,
       auto: true, manualWhileAuto: false },
     block: { name: "Глухая оборона", owner: "warrior", type: "instant", cost: 40, res: "rage", dmgReduce: 0.75, durSec: 3, cooldown: 9 },
+    taunt: { name: "Провокация", owner: "warrior", type: "instant", cost: 25, res: "rage", cooldown: 25, innate: true },
     sacrifice: { name: "Жертвенность", owner: "warrior", type: "instant", cost: 45, res: "rage", durSec: 4, cooldown: 36 },
     righteousFury: { name: "Праведная ярость", owner: "warrior", type: "instant", auto: true, cost: 20, res: "rage",
       healFraction: 0.03, cooldown: 5 },
@@ -268,6 +269,7 @@ DWR.CONFIG = {
     warriorAdvanceSpeed: 210,
     warriorStopRange: 106,
     warriorRearGap: 96,
+    bypassDepth: 24,
     warriorContact: 0.48
   },
   saveKey: "dwr_save_v1"

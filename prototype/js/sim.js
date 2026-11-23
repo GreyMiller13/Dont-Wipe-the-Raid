@@ -131,14 +131,16 @@ DWR.Sim = (function () {
     return best;
   }
 
-  function warriorRearGuard(run) {
-    const { warrior, priest, ranger } = run.heroes;
-    return [priest, ranger].find(hero => hero.alive && hero.x <= warrior.x);
+  function supportBetween(run, fromX, toX) {
+    const { priest, ranger } = run.heroes;
+    const direction = Math.sign(toX - fromX);
+    return [priest, ranger].filter(hero => hero.alive && direction &&
+      (hero.x - fromX) * direction >= 0 && (toX - hero.x) * direction >= 0)
+      .sort((a, b) => (a.x - b.x) * direction);
   }
 
   function warriorObstructed(run, enemy) {
-    const guard = warriorRearGuard(run);
-    return guard && enemy.x <= guard.x;
+    return supportBetween(run, run.heroes.warrior.x, enemy.x).length > 0;
   }
 
   const warriorTarget = (run, warrior) =>
@@ -148,7 +150,7 @@ DWR.Sim = (function () {
     nearestEnemy(run, warrior.x);
   const canWarriorTarget = (run, enemy) => {
     const x = run.heroes.warrior.x;
-    return !warriorObstructed(run, enemy) &&
+    return !run.heroes.warrior.bypass && !enemy.bypass && !warriorObstructed(run, enemy) &&
       (enemy.x >= x || !run.enemies.some(unit => targetable(unit) && unit.x >= x));
   };
   function rangedTarget(run, x, include = () => true) {
@@ -163,8 +165,14 @@ DWR.Sim = (function () {
       ? priest : ranger.alive ? ranger : null;
     if (!rear) return frontHero(run);
     // Ближайший герой на пути закрывает проход к цели.
-    const tankBlocks = warrior.alive && warrior.x >= Math.min(enemy.x, rear.x) && warrior.x <= Math.max(enemy.x, rear.x);
+    const tankBlocks = warrior.alive && !warrior.bypass &&
+      warrior.x >= Math.min(enemy.x, rear.x) && warrior.x <= Math.max(enemy.x, rear.x);
     return tankBlocks ? warrior : rear;
+  }
+
+  function tauntTarget(run, enemy) {
+    const warrior = run.heroes.warrior;
+    return enemy.taunted && warrior.alive && !warrior.bypass ? warrior : null;
   }
 
   // --- Заспавнить комнату (roomIndex — индекс в CONFIG.rooms) ---
@@ -185,7 +193,9 @@ DWR.Sim = (function () {
       hero.walking = false;
       hero.walkDistance = 0;
       hero.attackPose = null;
+      hero.bypass = null;
     }
+    run.heroes.warrior.returnToFormation = false;
     const isCombat = !room.boss && !room.chest;
     const mm = isCombat ? 1 + cfg.enemyGrowthPerRoom * (room.tier ?? roomIndex) : 1;
     run.enemies = [];
@@ -361,6 +371,10 @@ DWR.Sim = (function () {
     run.fx.push({ type: "hurt", unit: hero, amount, kind });
     if (hero.hp <= 0) {
       hero.hp = 0; hero.alive = false;
+      if (hero.id === "warrior") for (const unit of run.enemies) {
+        unit.taunted = false;
+        if (unit.attack?.provoked && !unit.attack.hit) unit.attack = null;
+      }
       if (run.combatRoom) {
         run.combatRoom.heroes[hero.id].death = { enemy, ability, redirectedFrom: target === hero ? null : target.id };
       }
@@ -464,7 +478,8 @@ DWR.Sim = (function () {
   }
 
   // Координаты корпусов для визуальных линий (y — смещение от пола).
-  const torsoY = unit => -unit.h * 0.55 - spikeElevation(unit).lift;
+  const bypassFloorOffset = unit => unit.bypass ? -unit.bypass.depth : 0;
+  const torsoY = unit => bypassFloorOffset(unit) - unit.h * 0.55 - spikeElevation(unit).lift;
 
   function meleeImpact(run, caster, target, kind) {
     const side = Math.sign(caster.x - target.x) || -caster.facing;
@@ -643,7 +658,7 @@ DWR.Sim = (function () {
           vulnerable(enemy) && enemy !== attack.target && Math.abs(enemy.x - attack.target.x) <= 110) : [];
         const melee = attack.kind === "sword" || attack.kind === "powerStrike";
         const direct = attack.damage > 0 && vulnerable(attack.target) &&
-          (!melee || !warriorObstructed(run, attack.target)) &&
+          (!melee || (!attack.caster.bypass && !attack.target.bypass && !warriorObstructed(run, attack.target))) &&
           (attack.kind !== "sword" || withinSwordRange(run, attack.target));
         // Взрыв фаербола использует один бросок крита для всех задетых целей.
         const critical = (direct || neighbors.length > 0) && rollCritical(attack.caster);
@@ -664,24 +679,106 @@ DWR.Sim = (function () {
     });
   }
 
+  function walkTo(unit, destination, distance) {
+    const direction = Math.sign(destination - unit.x);
+    const remaining = Math.abs(destination - unit.x);
+    const step = Math.min(remaining, distance);
+    if (step <= 0) return;
+    unit.facing = direction;
+    unit.x = step === remaining ? destination : unit.x + direction * step;
+    unit.walkDistance += step;
+    unit.walking = true;
+  }
+
+  // Сначала уходим вглубь сцены, затем пересекаем строй и возвращаемся на линию боя.
+  function beginBypass(unit, destination) {
+    unit.facing = Math.sign(destination - unit.x);
+    unit.bypass = { destination, direction: unit.facing, depth: 0, crossed: false };
+  }
+
+  function advanceBypass(unit, speed, dt, destination = unit.bypass.destination) {
+    const path = unit.bypass, maxDepth = C().battle.bypassDepth;
+    let step = speed * dt;
+    if (!path.crossed) {
+      const entry = Math.min(step, maxDepth - path.depth);
+      path.depth += entry;
+      unit.walkDistance += entry;
+      step -= entry;
+      const crossing = Math.max(0, (destination - unit.x) * path.direction);
+      const moved = Math.min(step, crossing);
+      if (moved > 0) walkTo(unit, destination, moved);
+      step -= moved;
+      path.crossed = moved >= crossing;
+    }
+    if (path.crossed && step > 0) {
+      const exit = Math.min(path.depth, step);
+      path.depth -= exit;
+      unit.walkDistance += exit;
+      if (path.depth === 0) unit.bypass = null;
+    }
+    unit.walking = true;
+  }
+
+  function bypassDestination(lastSupport, target, range, spacing = 0.5) {
+    const gap = lastSupport.x - target.x;
+    return target.x + Math.sign(gap) * Math.min(range, Math.abs(gap) * spacing);
+  }
+
   function advanceWarrior(run, dt) {
     const warrior = run.heroes.warrior;
     warrior.walking = false;
-    if (!warrior.alive || warrior.attackPose || controlled(warrior)) return;
+    if (!warrior.alive || warrior.attackPose || controlled(warrior) || dt <= 0) return;
+    const { warriorAdvanceSpeed, warriorStopRange, warriorRearGap } = C().battle;
+    const speed = warriorAdvanceSpeed + (run.stats.wStride || 0);
+    if (warrior.bypass) {
+      const { destination, direction } = warrior.bypass;
+      const obstacle = nearestEnemy(run, warrior.x, enemy =>
+        (enemy.x - warrior.x) * direction >= 0 && (destination - enemy.x) * direction >= 0);
+      advanceBypass(warrior, speed, dt, obstacle ? obstacle.x - direction * 16 : destination);
+      return;
+    }
+    if (!inBattle(run) && warrior.returnToFormation) {
+      const home = C().heroes.warrior.x * C().canvas.w;
+      if (warrior.x === home) {
+        warrior.returnToFormation = false;
+        warrior.facing = 1;
+      } else if (supportBetween(run, warrior.x, home).length) {
+        beginBypass(warrior, home);
+        advanceBypass(warrior, speed, dt);
+      } else walkTo(warrior, home, speed * dt);
+      return;
+    }
     const target = warriorTarget(run, warrior);
     if (!target) return;
     warrior.facing = Math.sign(target.x - warrior.x) || warrior.facing;
-    const { warriorAdvanceSpeed, warriorStopRange, warriorRearGap } = C().battle;
-    const speed = warriorAdvanceSpeed + (run.stats.wStride || 0);
-    const guard = warrior.facing === -1 && warriorRearGuard(run);
-    const approach = target.x - warrior.facing * meleeRange(target, warriorStopRange);
-    const destination = guard ? Math.max(approach, guard.x + warriorRearGap) : approach;
-    const distance = (destination - warrior.x) * warrior.facing;
-    if (distance <= 0 || dt <= 0) return;
-    const nextX = distance <= speed * dt ? destination : warrior.x + warrior.facing * speed * dt;
-    warrior.walkDistance += Math.abs(nextX - warrior.x);
-    warrior.walking = nextX !== warrior.x;
-    warrior.x = nextX;
+    const direction = warrior.facing;
+    const blockers = supportBetween(run, warrior.x, target.x);
+    const range = meleeRange(target, warriorStopRange);
+    const clearOtherSide = !run.enemies.some(enemy => enemy.alive && (enemy.x - warrior.x) * direction <= 0);
+    if (blockers.length && clearOtherSide && !target.taunted && !target.bypass) {
+      warrior.returnToFormation = true;
+      beginBypass(warrior, bypassDestination(blockers.at(-1), target, range));
+      advanceBypass(warrior, speed, dt);
+      return;
+    }
+    const distance = Math.abs(target.x - warrior.x) - range;
+    const space = blockers.length ? Math.abs(blockers[0].x - warrior.x) - warriorRearGap : Infinity;
+    const travel = Math.min(distance, space);
+    if (travel > 0) walkTo(warrior, travel === distance ? target.x - direction * range : warrior.x + direction * travel, speed * dt);
+  }
+
+  function advanceEnemyBypass(run, enemy, dt) {
+    if (!enemy.bypass) {
+      const target = tauntTarget(run, enemy);
+      if (!target) return false;
+      const blockers = supportBetween(run, enemy.x, target.x);
+      if (!blockers.length) return false;
+      const range = enemy.def.ranged ? SWORD_RANGE : (enemy.def.stopRange ?? 95) + enemy.lane;
+      const spacing = enemy.def.ranged ? 0.75 : 0.5;
+      beginBypass(enemy, bypassDestination(blockers.at(-1), target, range, spacing));
+    }
+    advanceBypass(enemy, enemy.def.speed ?? 170, dt);
+    return true;
   }
 
   function specialAttackKey(unit) {
@@ -910,6 +1007,7 @@ DWR.Sim = (function () {
 
   function resolveRiftMove(run, enemy, attack) {
     const { lockedTarget: target, riftMove: move } = attack;
+    if (attack.provoked) enemy.taunted = false;
     const spec = C().riftMoves[move];
     if (spec && Object.hasOwn(enemy.rift.cooldowns, move)) enemy.rift.cooldowns[move] = spec.cooldown;
     if (move === "petrify") {
@@ -955,7 +1053,9 @@ DWR.Sim = (function () {
       if (attack.t + 1e-9 >= attack.windup + attack.recovery) enemy.attack = null;
       if (!petrify || !attack.hit || run.over) return;
     }
-    const target = enemyTarget(run, enemy);
+    if (!enemy.attack && !petrify && advanceEnemyBypass(run, enemy, dt)) return;
+    const provoked = tauntTarget(run, enemy);
+    const target = provoked ?? enemyTarget(run, enemy);
     if (!target) return;
     enemy.facing = Math.sign(target.x - enemy.x) || enemy.facing;
     const gap = Math.abs(target.x - enemy.x) - riftStopRange(enemy);
@@ -964,12 +1064,14 @@ DWR.Sim = (function () {
     const move = petrify ? "petrify" : ready ?? fallback;
     if (petrify || (enemy.atkT <= 0 && (move !== "melee" || gap <= 1e-9))) {
       const spec = move === "melee" ? def.melee : C().riftMoves[move];
-      const aimed = move === "boulder" || move === "fireball" || move === "spike"
+      const forced = Boolean(provoked && !petrify && !ready);
+      const aimed = !forced && (move === "boulder" || move === "fireball" || move === "spike")
         ? chooseHero(run, () => true) : target;
       enemy.facing = Math.sign(aimed.x - enemy.x) || enemy.facing;
       enemy.walking = false;
       enemy.atkT = enemy.interval;
-      enemy.attack = { riftMove: move, windup: spec.windup, recovery: spec.recovery, lockedTarget: aimed, t: 0, hit: false };
+      enemy.attack = { riftMove: move, windup: spec.windup, recovery: spec.recovery,
+        lockedTarget: aimed, provoked: forced, t: 0, hit: false };
       if (petrify) rift.petrifyUsed = true;
       soundCue(run, move === "melee" ? "swing" : move === "petrify" ? "guard" : move === "cloak" || move === "fireball" ? "castFire" : "castLight", enemy.x);
     } else if (!enemy.def.ranged && gap > 0) {
@@ -1014,9 +1116,10 @@ DWR.Sim = (function () {
       // Первый удар в ближнем бою получает полный замах после подхода.
       if (justStopped) e.atkT = windup;
       let lockedTarget = null;
+      const provoked = target === tauntTarget(run, e) && !(heavy || buffing || howling || freezing || guarding || stunning);
       if (freezing || stunning) lockedTarget = chooseHero(run, () => true);
-      else if (move?.aimRear) lockedTarget = chooseHero(run, hero => hero.id !== "warrior") ?? target;
-      e.attack = { windup, recovery, heavy, buffing, howling, freezing, guarding, stunning, lockedTarget,
+      else if (move?.aimRear && !provoked) lockedTarget = chooseHero(run, hero => hero.id !== "warrior") ?? target;
+      e.attack = { windup, recovery, heavy, buffing, howling, freezing, guarding, stunning, lockedTarget, provoked, startedOn: target,
         beam: !!move?.beam, projectile: move?.projectile,
         impact: move?.impact, wave: move?.wave, party: move?.party,
         groundX: heavy ? Math.max(0, e.x - e.h * smash.contactOffset) : null, hit: false, t: 0 };
@@ -1032,6 +1135,7 @@ DWR.Sim = (function () {
 
     attack.hit = true;
     e.atkT = e.interval;
+    if (attack.provoked) e.taunted = false;
     if (attack.howling) {
       e.howlT = howl.cooldown;
       e.atkT = howl.nextAttackDelay ?? e.interval;
@@ -1170,7 +1274,7 @@ DWR.Sim = (function () {
         }
         const tgt = warriorTarget(run, warrior);
         if (!controlled(warrior) && !warrior.walking && !warrior.attackPose && warrior.atkT <= 0 &&
-            vulnerable(tgt) && !warriorObstructed(run, tgt) && withinSwordRange(run, tgt)) {
+            vulnerable(tgt) && !tgt.bypass && !warriorObstructed(run, tgt) && withinSwordRange(run, tgt)) {
           warrior.atkT = warrior.interval;
           if (!run.autoSkills.has("powerStrike") || !castTargeted(run, "powerStrike", tgt)) {
             const windup = startAttackPose(warrior, Math.min(warrior.interval, AUTO_MOTION.warrior), cfg.battle.warriorContact);
@@ -1200,14 +1304,26 @@ DWR.Sim = (function () {
       if (!e.alive) continue;
       if (e.rift) { tickRiftEnemy(run, e, dt); continue; }
       if (controlled(e)) { e.walking = false; continue; }
-      const target = enemyTarget(run, e);
-      if (!target) break;
+      const normalTarget = enemyTarget(run, e);
+      if (!normalTarget) break;
       if (e.def.furnace) tickFurnace(run, e, dt);
       if (e.appearT > 0) { e.appearT -= dt; continue; }
       if ((e.def.summon || e.def.raise) && tickRitual(run, e, dt)) continue;
-      if (e.flanking || e.def.raise) e.facing = Math.sign(target.x - e.x) || e.facing;
+      if (!e.attack && advanceEnemyBypass(run, e, dt)) {
+        enemyAttack(run, e, normalTarget, dt, false);
+        continue;
+      }
+      const provoked = tauntTarget(run, e);
+      if (e.attack && (e.taunted || e.attack.provoked)) {
+        e.walking = false;
+        enemyAttack(run, e, e.attack.startedOn?.alive ? e.attack.startedOn : normalTarget, dt, false);
+        continue;
+      }
+      const target = provoked ?? normalTarget;
+      if (e.flanking || e.def.raise || provoked) e.facing = Math.sign(target.x - e.x) || e.facing;
       const wasWalking = e.walking;
-      if (!e.def.ranged && !e.attack?.howling) {
+      if (e.def.ranged) e.walking = false;
+      else if (!e.attack?.howling) {
         const gap = (target.x - e.x) * e.facing - (e.def.stopRange ?? 95) - e.lane;
         if (gap > 0) {
           const step = Math.min(gap, (e.def.speed ?? 170) * dt);
@@ -1236,7 +1352,8 @@ DWR.Sim = (function () {
       run.attacks.some(shot => shot.skillId === skillId && shot.startX === null && !shot.cancelled);
     const volley = skillId === "preciseShot" && rangerSpecialInFlight(run);
     return { cost, left, duration, frozen, stunned, impaled, casting, volley,
-      ready: run.equipped.has(skillId) && h.alive && !controlled(h) && !casting && !volley && left === 0 && h[s.res] >= cost };
+      ready: run.equipped.has(skillId) && h.alive && !controlled(h) && !casting && !volley && left === 0 && h[s.res] >= cost &&
+        (skillId !== "taunt" || run.enemies.some(enemy => enemy.alive && !enemy.escape)) };
   }
 
   function startSkillCooldown(run, skillId, duration = skillStatus(run, skillId).duration) {
@@ -1459,6 +1576,11 @@ DWR.Sim = (function () {
     if (skillId === "righteousFury" && h.hp >= h.maxHp) return "full";
     if (skillId === "sacrifice" && !run.heroOrder.some(id => id !== h.id && run.heroes[id].alive)) return false;
     if (!spendSkill(run, skillId, h, s.res)) return false;
+    if (skillId === "taunt") {
+      for (const enemy of run.enemies) if (enemy.alive && !enemy.escape) enemy.taunted = true;
+      run.fx.push({ type: "taunt", unit: h });
+      return true;
+    }
     if (skillId === "righteousFury") {
       restoreHealth(run, h, righteousFuryHeal(run), { caster: h, skill: skillId });
       run.fx.push({ type: "righteousFury", unit: h });
@@ -1517,6 +1639,6 @@ DWR.Sim = (function () {
   }
 
   return { createRun, spawnRoom, tick, useTargeted, useInstant, useHeal, useDispel, useGround, canThrowBomb, bombRadius, bombCharges, setAuto,
-           specialAttackKey, targetable, canDispelEnemy, spikeElevation,
+           specialAttackKey, targetable, canDispelEnemy, spikeElevation, bypassFloorOffset,
            usePotion, inBattle, frontHero, nearestEnemy, canWarriorTarget, skillStatus, activeStatuses, applyStatus, hasHeroDamageEffect };
 })();

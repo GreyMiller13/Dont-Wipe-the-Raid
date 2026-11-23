@@ -6,7 +6,7 @@ DWR.Input = (function () {
   const api = { x: -1, y: -1 };
   function init() {
     const cv = document.getElementById("game-canvas");
-    let releasedDrag = false;
+    let suppressClick = false;
     const inGame = () => DWR.currentScreen() === "game" && DWR.Run;
     const toCanvas = (e) => {
       const r = cv.getBoundingClientRect();
@@ -23,18 +23,18 @@ DWR.Input = (function () {
     });
     cv.addEventListener("mousedown", e => {
       if (e.button !== 0 || !inGame()) return;
-      releasedDrag = false;
+      suppressClick = false;
       toCanvas(e);
       DWR.Run.onDown(api.x, api.y);
     });
     window.addEventListener("mouseup", e => {
       if (e.button !== 0 || !inGame()) return;
       toCanvas(e);
-      releasedDrag = DWR.Run.onUp(api.x, api.y) || releasedDrag;
+      suppressClick = DWR.Run.onUp(api.x, api.y) || suppressClick;
     });
     cv.addEventListener("click", e => {
       if (!inGame()) return;
-      if (releasedDrag) { releasedDrag = false; return; }
+      if (suppressClick) { suppressClick = false; return; }
       toCanvas(e);
       DWR.Run.onClick(api.x, api.y);
     });
@@ -44,11 +44,11 @@ DWR.Input = (function () {
     });
     window.addEventListener("blur", () => {
       api.x = api.y = -1;
-      if (inGame()) releasedDrag = DWR.Run.cancelDrag(api.x, api.y) || releasedDrag;
+      if (inGame() && DWR.Run.cancelAim(api.x, api.y)) suppressClick = true;
     });
     window.addEventListener("keydown", e => {
-      if (e.key === "Escape" && inGame() && DWR.Run.cancelDrag(api.x, api.y)) {
-        releasedDrag = true;
+      if (e.key === "Escape" && inGame() && DWR.Run.cancelAim(api.x, api.y)) {
+        suppressClick = true;
         e.preventDefault();
       }
     });

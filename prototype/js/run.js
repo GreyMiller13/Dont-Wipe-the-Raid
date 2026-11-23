@@ -106,7 +106,7 @@ DWR.Run = (function () {
       runCoins: 0, runRunes: 0, coinBonusCarry: 0, tempPanel,
       chestOpened: false, chestRect: { x: 532, y: FLOOR - 132, w: 170, h: 132 },
       menu: null,                           // null | {confirm:false} — открытое бургер-меню (пауза)
-      drag: null,                           // {kind:'skill'|'potion'|'floorPotion', id?, item?}
+      aim: null,                            // press задан, пока ЛКМ удерживается на пути от слота или зелья
       hoverTarget: null, potionHover: null, time: 0, flash: new Map()
     };
     loadRoom(0);
@@ -149,6 +149,7 @@ DWR.Run = (function () {
 
   function canAdvance() {
     return R.phase === "room" && !DWR.Sim.inBattle(R.sim) && !R.sim.over && !R.sim.groundWaves.length &&
+      !(R.sim.heroes.warrior.alive && R.sim.heroes.warrior.returnToFormation) &&
       !hasExitHazard() && !hasFallingBoss() && !hasEscapingBoss() && !priestCasting() && !R.sim.bombThrows.length &&
       !R.sim.attacks.some(attack => attack.target.id && (attack.target.alive || attack.kind === "riftFireball") && !attack.resolved) &&
       (!curRoom().chest || R.chestOpened);
@@ -291,7 +292,7 @@ DWR.Run = (function () {
     const sim = R.sim;
     if (sim.over === "wipe") {
       R.phase = "wipeDelay"; R.phaseT = 0;
-      cancelDrag(DWR.Input.x, DWR.Input.y);
+      cancelAim(DWR.Input.x, DWR.Input.y);
       return;
     }
     const wasInBattle = DWR.Sim.inBattle(sim);
@@ -370,6 +371,7 @@ DWR.Run = (function () {
       }
       else if (f.type === "furnaceInterrupt") floater(f.unit.x, FLOOR - f.unit.h * 0.42, "Выброс прерван", "#ffd092");
       else if (f.type === "castInterrupted") floater(f.unit.x, FLOOR - f.unit.h * 0.65, "Каст прерван", "#d4f8ff");
+      else if (f.type === "taunt") floater(f.unit.x, FLOOR - f.unit.h - 22, "Провокация", "#ffd092");
       else if (f.type === "absorb") floater(f.unit.x, FLOOR - f.unit.h - 22,
         "Щит поглотил " + f.amount.toLocaleString("ru-RU", { maximumFractionDigits: 2 }), "#c9e9ff");
       else if (["dispel", "massHeal", "tornadoHit", "bombImpact", "noiseBombImpact", "righteousFury", "sacrificeRedirect"].includes(f.type)) {
@@ -396,7 +398,8 @@ DWR.Run = (function () {
   // --- Ввод (вызывает input.js) ---
   function onMouseMove(x, y) {
     if (!R) return;
-    if (R.drag?.origin && Math.hypot(x - R.drag.origin.x, y - R.drag.origin.y) > 5) R.drag.moved = true;
+    const press = R.aim?.press;
+    if (press && Math.hypot(x - press.x, y - press.y) > 5) press.moved = true;
     updateCursor(x, y);
     if (R.phase === "room" && !R.menu) collectHoveredLoot();
   }
@@ -404,7 +407,7 @@ DWR.Run = (function () {
   const nearLoot = (p, it) => Math.hypot(it.x - p.x, it.y - p.y) <= LOOT_ART[it.type].reach + R.sim.stats.lootReach;
 
   function collectHoveredLoot() {
-    const p = !R.drag && worldPoint(DWR.Input.x, DWR.Input.y);
+    const p = !R.aim && worldPoint(DWR.Input.x, DWR.Input.y);
     const coin = p && R.items.find(it => it.type === "coin" && it.grounded && nearLoot(p, it));
     const item = !coin && p && R.items.find(it => it.type === "potion" && it.grounded && nearLoot(p, it));
     if (!item) {
@@ -424,7 +427,7 @@ DWR.Run = (function () {
 
   function updateCursor(x, y) {
     const cv = document.getElementById("game-canvas");
-    if (R.drag) {
+    if (R.aim) {
       cv.style.cursor = `url("${DWR.Assets.assetUrl("cursor-target.png")}") 16 16, crosshair`;
       return;
     }
@@ -453,22 +456,22 @@ DWR.Run = (function () {
   function dropTargetAt(x, y) {
     if (!R) return null;
     const p = worldPoint(x, y);
-    if (R.drag?.kind === "ground") return p;
-    if (R.drag && ["ally", "potion", "floorPotion"].includes(R.drag.kind)) {
+    if (R.aim?.kind === "ground") return p;
+    if (R.aim && ["ally", "potion", "floorPotion"].includes(R.aim.kind)) {
       for (const [i, id] of R.sim.heroOrder.entries()) {
         const h = R.sim.heroes[id];
         if (h.alive && (inRect(x, y, partyCard(i)) || (p && isUnitTarget(p, h)))) return h;
       }
-      return DWR.CONFIG.skills[R.drag.id]?.targetEnemies && p
+      return DWR.CONFIG.skills[R.aim.id]?.targetEnemies && p
         ? R.sim.enemies.find(e => DWR.Sim.canDispelEnemy(e) && isUnitTarget(p, e)) ?? null
         : null;
     }
     return p ? R.sim.enemies.find(e => DWR.Sim.targetable(e) && isUnitTarget(p, e) &&
-      (R.drag?.id !== "powerStrike" || DWR.Sim.canWarriorTarget(R.sim, e))) || null : null;
+      (R.aim?.id !== "powerStrike" || DWR.Sim.canWarriorTarget(R.sim, e))) || null : null;
   }
 
   function isUnitTarget(p, unit) {
-    const ground = FLOOR - DWR.Sim.spikeElevation(unit).lift;
+    const ground = FLOOR + DWR.Sim.bypassFloorOffset(unit) - DWR.Sim.spikeElevation(unit).lift;
     const halfWidth = unit.def?.rift ? Math.max(55, unit.h * 0.37) : 55;
     const height = unit.effects.has("riftStone") ? unit.h * 0.72 : unit.h;
     return Math.abs(p.x - unit.x) < halfWidth && p.y > ground - height - 10 && p.y < ground + 10;
@@ -477,103 +480,119 @@ DWR.Run = (function () {
   function onClick(x, y) {
     if (!R || R.phase !== "room") return;
     if (R.menu) { menuClick(x, y); return; }
-    if (inRect(x, y, BURGER)) { R.menu = { confirm: false }; DWR.Audio.play("ui"); return; }
-    if (canAdvance() && nextTargetAt(x, y)) { goNextRoom(); return; }
-    const p = worldPoint(x, y);
-    if (p && curRoom().chest && !R.chestOpened && inRect(p.x, p.y, R.chestRect)) { openChest(); return; }
-    // тап по слоту: мгновенные и переключатели
+    if (inRect(x, y, BURGER)) {
+      R.menu = { confirm: false };
+      cancelAim(x, y);
+      DWR.Audio.play("ui");
+      return;
+    }
     const i = DWR.Panel.slotAt(R, x, y);
     if (i >= 0) {
+      cancelAim(x, y);
       const id = R.tempPanel[i];
-      if (!id) return;
-      const s = id !== "potion" ? DWR.CONFIG.skills[id] : null;
-      if (s?.auto) {
-        const enabled = !R.sim.autoSkills.has(id);
-        DWR.Sim.setAuto(R.sim, id, enabled);
-        DWR.State.setAuto(id, enabled);
-      }
-      else if (s && s.type === "instant") {
+      const skill = DWR.CONFIG.skills[id];
+      if (skill?.type === "instant") {
         const result = DWR.Sim.useInstant(R.sim, id);
         if (result === "full") toast("Здоровье отряда уже полное");
         else if (!result) skillNotice(id);
       }
-      // прицельные и зелья — через drag (onDown), тап без drag игнорируем
+      return;
     }
+    if (R.aim) {
+      const target = dropTargetAt(x, y);
+      if (target) finishAim(x, y, target);
+      return;
+    }
+    if (canAdvance() && nextTargetAt(x, y)) { goNextRoom(); return; }
+    const p = worldPoint(x, y);
+    if (p && curRoom().chest && !R.chestOpened && inRect(p.x, p.y, R.chestRect)) { openChest(); return; }
   }
 
   function onDown(x, y) {
     if (!R || R.phase !== "room" || R.menu) return;
     const i = DWR.Panel.slotAt(R, x, y);
+    const press = { x, y, moved: false };
     if (i >= 0) {
       const id = R.tempPanel[i];
-      if (!id) return;
-      const s = id !== "potion" ? DWR.CONFIG.skills[id] : null;
-      const canAim = s && (s.manualWhileAuto !== false || !R.sim.autoSkills.has(id));
-      if (canAim && (s.type === "targeted" || s.type === "ally" || s.type === "ground") &&
-          (!s.stock || DWR.Sim.canThrowBomb(R.sim, id))) {
-        const kind = s.type === "targeted" ? "skill" : s.type;
-        R.drag = { kind, id, slot: i, origin: s.auto ? { x, y } : null };
-      }
-      else if (id === "potion" && R.sim.potionsLeft > 0) R.drag = { kind: "potion" };
+      const skill = DWR.CONFIG.skills[id];
+      if (!skill || !["targeted", "ally", "ground", "potion"].includes(skill.type) ||
+          (skill.manualWhileAuto === false && R.sim.autoSkills.has(id)) ||
+          (skill.stock && !DWR.Sim.canThrowBomb(R.sim, id)) ||
+          (id === "potion" && R.sim.potionsLeft === 0)) return;
+      R.aim = { kind: skill.type, id, slot: i, press };
     } else {
+      if (R.aim) return;
       const p = worldPoint(x, y);
       const item = p && R.items.find(it => it.type === "potion" && it.grounded && nearLoot(p, it));
-      if (item) R.drag = { kind: "floorPotion", item };
+      if (!item) return;
+      R.aim = { kind: "floorPotion", item, press };
     }
-    if (R.drag) {
-      R.potionHover = null;
-      updateCursor(x, y);
-    }
+    R.potionHover = null;
+    updateCursor(x, y);
+  }
+
+  function toggleAuto(id) {
+    const enabled = !R.sim.autoSkills.has(id);
+    DWR.Sim.setAuto(R.sim, id, enabled);
+    DWR.State.setAuto(id, enabled);
+    return enabled;
   }
 
   function onContextMenu(x, y) {
     if (!R || R.phase !== "room" || R.menu) return false;
     const id = R.tempPanel[DWR.Panel.slotAt(R, x, y)];
     const skill = DWR.CONFIG.skills[id];
-    if (!skill?.auto || skill.type !== "instant") return false;
-    const result = DWR.Sim.useInstant(R.sim, id);
-    if (result === "full") toast("Здоровье уже полное");
-    else if (!result) skillNotice(id);
+    if (!skill?.auto) return false;
+    if (toggleAuto(id) && R.aim?.id === id && skill.manualWhileAuto === false) cancelAim(x, y);
     return true;
   }
 
-  function cancelDrag(x, y) {
-    if (!R?.drag) return false;
-    R.drag = null;
+  function cancelAim(x, y) {
+    if (!R?.aim) return false;
+    R.aim = null;
     R.hoverTarget = null;
     updateCursor(x, y);
     return true;
   }
 
   function onUp(x, y) {
-    if (!R?.drag) return false;
-    const tgt = R.phase === "room" && !R.menu ? dropTargetAt(x, y) : null;
-    const drag = R.drag;
-    cancelDrag(x, y);
-    if (drag.origin && !drag.moved && DWR.Panel.slotAt(R, x, y) === drag.slot) return false;
-    if (!tgt) return true; // промах — без траты
-    if (drag.kind === "skill") {
+    const aim = R?.aim;
+    if (!aim?.press) return false;
+    // Короткий клик по исходному слоту оставляет прицел активным до выбора цели.
+    if (!aim.press.moved && DWR.Panel.slotAt(R, x, y) === aim.slot) {
+      aim.press = null;
+    } else {
+      const target = R.phase === "room" && !R.menu ? dropTargetAt(x, y) : null;
+      finishAim(x, y, target);
+    }
+    return true;
+  }
+
+  function finishAim(x, y, tgt) {
+    const aim = R.aim;
+    cancelAim(x, y);
+    if (!tgt) return;
+    if (aim.kind === "targeted") {
       if (tgt.effects.has("riftStone")) toast("Элементаль защищён каменной формой");
-      else if (!DWR.Sim.useTargeted(R.sim, drag.id, tgt.uid)) skillNotice(drag.id);
-    } else if (drag.kind === "ally") {
-      const result = drag.id === "dispel" ? DWR.Sim.useDispel(R.sim, tgt.id ?? tgt.uid) : DWR.Sim.useHeal(R.sim, tgt.id);
+      else if (!DWR.Sim.useTargeted(R.sim, aim.id, tgt.uid)) skillNotice(aim.id);
+    } else if (aim.kind === "ally") {
+      const result = aim.id === "dispel" ? DWR.Sim.useDispel(R.sim, tgt.id ?? tgt.uid) : DWR.Sim.useHeal(R.sim, tgt.id);
       if (result === "full") toast("Здоровье уже полное");
       else if (result === "clean") toast("На герое нет негативных эффектов");
-      else if (!result) skillNotice(drag.id);
-    } else if (drag.kind === "ground") {
-      if (!DWR.Sim.useGround(R.sim, drag.id, tgt.x)) {
-        if (DWR.CONFIG.skills[drag.id].stock) toast("Бросок недоступен");
-        else skillNotice(drag.id);
+      else if (!result) skillNotice(aim.id);
+    } else if (aim.kind === "ground") {
+      if (!DWR.Sim.useGround(R.sim, aim.id, tgt.x)) {
+        if (DWR.CONFIG.skills[aim.id].stock) toast("Бросок недоступен");
+        else skillNotice(aim.id);
       }
     } else {
-      const fromFloor = drag.kind === "floorPotion";
-      const index = fromFloor ? R.items.indexOf(drag.item) : -1;
-      if (fromFloor && index < 0) return true;
+      const fromFloor = aim.kind === "floorPotion";
+      const index = fromFloor ? R.items.indexOf(aim.item) : -1;
+      if (fromFloor && index < 0) return;
       const result = DWR.Sim.usePotion(R.sim, tgt.id, { fromFloor });
       if (result === "full") toast("Здоровье уже полное");
       else if (result && fromFloor) R.items.splice(index, 1);
     }
-    return true;
   }
 
   function goNextRoom() {
@@ -617,7 +636,7 @@ DWR.Run = (function () {
 
   // --- Отрисовка ---
   function draw(ctx) {
-    R.hoverTarget = R.drag ? dropTargetAt(DWR.Input.x, DWR.Input.y) : null;
+    R.hoverTarget = R.aim ? dropTargetAt(DWR.Input.x, DWR.Input.y) : null;
     ctx.fillStyle = "#101118";
     ctx.fillRect(0, 0, CV().w, CV().h);
     ctx.save();
@@ -631,8 +650,8 @@ DWR.Run = (function () {
     for (const wave of R.sim.groundWaves) {
       if (wave.kind === "furnace") drawFurnaceWave(ctx, wave);
     }
-    if (DWR.CONFIG.skills[R.drag?.id]?.stock && R.hoverTarget) {
-      drawBombArea(ctx, R.hoverTarget.x, DWR.Sim.bombRadius(R.sim, R.drag.id), R.drag.id === "noiseBomb");
+    if (DWR.CONFIG.skills[R.aim?.id]?.stock && R.hoverTarget) {
+      drawBombArea(ctx, R.hoverTarget.x, DWR.Sim.bombRadius(R.sim, R.aim.id), R.aim.id === "noiseBomb");
     }
     drawSacrifice(ctx);
     drawUnits(ctx);
@@ -653,16 +672,19 @@ DWR.Run = (function () {
       if (!R.menu) drawNextArrow(ctx);
     }
     else {
+      const battle = DWR.Sim.inBattle(R.sim);
+      const warrior = R.sim.heroes.warrior;
       const status = R.phase === "fadeout" ? "Переход между комнатами" : curRoom().chest ? "Откройте сундук"
         : hasEscapingBoss() ? "Лич открывает портал"
         : R.sim.fusion?.delay > 0 || R.sim.enemies.some(enemy => enemy.rift?.motion?.name === "merge") ? "Слияние стихий"
-        : !DWR.Sim.inBattle(R.sim) && hasFrozenHero() ? "Герой оттаивает"
-        : !DWR.Sim.inBattle(R.sim) && hasExitHazard() ? "Эффекты ещё действуют"
-        : !DWR.Sim.inBattle(R.sim) && priestCasting() ? "Жрица произносит заклинание"
-        : !DWR.Sim.inBattle(R.sim) && hasFallingBoss() ? "Босс повержен" : "Бой в комнате";
+        : !battle && hasFrozenHero() ? "Герой оттаивает"
+        : !battle && hasExitHazard() ? "Эффекты ещё действуют"
+        : !battle && priestCasting() ? "Жрица произносит заклинание"
+        : !battle && hasFallingBoss() ? "Босс повержен"
+        : !battle && warrior.alive && warrior.returnToFormation ? "Отряд перестраивается" : "Бой в комнате";
       text(ctx, status, 1221, 593, "14px", "#b0aaba", "right");
     }
-    drawDragHint(ctx);
+    drawAimHint(ctx);
     drawMenu(ctx);
   }
 
@@ -750,71 +772,81 @@ DWR.Run = (function () {
 
   function drawUnits(ctx) {
     const sim = R.sim;
-    // враги
-    for (const e of sim.enemies) {
-      if (e.raised || e.merged) continue;
-      if (e.escape) {
-        if (!e.escape.finished) drawBossEscape(ctx, e);
-        continue;
-      }
-      const p = e.rift ? riftPose(e) : unitPose(e);
-      const visible = DWR.Sim.targetable(e);
-      if (visible) shadow(ctx, e.x, e.h * 0.22);
-      const drawUnit = R.hoverTarget === e ? DWR.Chars.drawOutlined : DWR.Chars.draw;
-      const attack = e.ritual ? { ritual: true, t: e.ritual.t, windup: e.ritual.duration } : e.attack;
+    const floorOffset = DWR.Sim.bypassFloorOffset;
+    const units = [...sim.enemies, ...sim.heroOrder.map(id => sim.heroes[id])];
+    units.sort((a, b) => floorOffset(a) - floorOffset(b));
+    for (const unit of units) {
       ctx.save();
-      if (e.appearT > 0) ctx.globalAlpha = 1 - e.appearT / 0.4;
-      const cloak = e.effects.get("riftCloak");
-      drawUnit(ctx, { kind: e.kind, x: e.x, y: FLOOR, h: e.h, facing: e.facing, attack, ...p, externalEffects: true,
-        cloakT: cloak && e.alive ? (cloak.duration - cloak.left) / DWR.RiftMotion.clips.burning.duration : undefined,
-        enraged: e.effects.has("kragRage"), fallForward: e.x + e.h > CV().w,
-        flash: (R.flash.get(e) || 0) / 0.18 }, R.time);
+      ctx.translate(0, floorOffset(unit));
+      if (unit.id) drawHeroUnit(ctx, unit);
+      else drawEnemyUnit(ctx, unit);
       ctx.restore();
-      if (visible || p.pose === "burrow") {
-        const height = p.pose === "stone" ? e.h * 0.72 : DWR.ForgeMotion.howlGeometry(e).height;
-        const barY = FLOOR - height - (e.def.armor ? 20 : 12), width = e.def.armor ? 116 : 74;
-        ctx.save();
-        // Во время перемещения сохраняем видимым остаток здоровья того же элементаля.
-        if (!visible) ctx.globalAlpha *= 0.55;
-        bar(ctx, e.x, barY, width, 8, e.hp / e.maxHp, "#b8563e");
-        if (e.armor > 0) bar(ctx, e.x, barY + 10, width, 6, e.armor / e.def.armor, "#a8cce7");
-        const showName = e.boss && (e.def.spritePoses || e.def.motion || e.def.rift);
-        if (showName) text(ctx, e.def.name, e.x, barY - 10, "600 18px", "#f6ddcf", "center");
-        if (visible) drawStatusBadges(ctx, e, showName ? 23 : 0, height);
-        ctx.restore();
-      } else if (e.def.death && p.poseT < 1) drawBossDeathFx(ctx, e, p.poseT);
     }
-    // герои
-    for (const id of sim.heroOrder) {
-      const h = sim.heroes[id];
-      if (!h.alive && !R.deaths.has(h)) continue;
-      const p = unitPose(h);
-      if (h.alive) shadow(ctx, h.x, 52);
-      const spike = DWR.Sim.spikeElevation(h);
-      if (spike.height > 0) DWR.RiftMotion.drawSpike(ctx, h.x, FLOOR, spike.sourceHeight, spike.height);
-      const cast = h.attackPose?.spell && h.attackPose;
-      if (cast && h.alive) {
-        const { castTime, recovery } = DWR.CONFIG.skills[cast.spell];
-        p.poseT = cast.released ? 0.60 + 0.40 * (cast.t - castTime) / recovery : 0.60 * cast.t / castTime;
-        if (!cast.released) drawSpellCharge(ctx, h, cast.spell, cast.t / castTime);
-      }
-      const castReleased = cast?.released || id === "priest" && sim.attacks.some(shot => shot.kind === "fire" && shot.startX !== null);
-      const drawUnit = R.hoverTarget === h ? DWR.Chars.drawOutlined : DWR.Chars.draw;
-      drawUnit(ctx, { kind: id, x: h.x, y: FLOOR - spike.lift, h: h.h, facing: h.facing, ...p,
-        castReleased, flash: (R.flash.get(h) || 0) / 0.18 }, R.time);
-      if (h.alive) {
-        ctx.save();
-        ctx.translate(0, -spike.lift);
-        if (h.blockT > 0) drawBlockBubble(ctx, h);
-        const barrier = h.effects.get("healBarrier");
-        if (barrier) drawHealBarrier(ctx, h, barrier);
-        const ice = h.effects.get("frozen");
-        if (ice) drawIceBlock(ctx, h.x, h.h, Math.min(1, (ice.duration - ice.left) / ICE_GROW));
-        if (h.effects.has("burning") || h.effects.has("ember") || h.effects.has("riftBurn") ||
-            h.effects.has("riftCloakBurn")) drawBurning(ctx, h);
-        ctx.restore();
-        drawStatusBadges(ctx, h, spike.lift);
-      }
+  }
+
+  function drawEnemyUnit(ctx, e) {
+    if (e.raised || e.merged) return;
+    if (e.escape) {
+      if (!e.escape.finished) drawBossEscape(ctx, e);
+      return;
+    }
+    const p = e.rift ? riftPose(e) : unitPose(e);
+    const visible = DWR.Sim.targetable(e);
+    if (visible) shadow(ctx, e.x, e.h * 0.22);
+    const drawUnit = R.hoverTarget === e ? DWR.Chars.drawOutlined : DWR.Chars.draw;
+    const attack = e.ritual ? { ritual: true, t: e.ritual.t, windup: e.ritual.duration } : e.attack;
+    ctx.save();
+    if (e.appearT > 0) ctx.globalAlpha = 1 - e.appearT / 0.4;
+    const cloak = e.effects.get("riftCloak");
+    drawUnit(ctx, { kind: e.kind, x: e.x, y: FLOOR, h: e.h, facing: e.facing, attack, ...p, externalEffects: true,
+      cloakT: cloak && e.alive ? (cloak.duration - cloak.left) / DWR.RiftMotion.clips.burning.duration : undefined,
+      enraged: e.effects.has("kragRage"), fallForward: e.x + e.h > CV().w,
+      flash: (R.flash.get(e) || 0) / 0.18 }, R.time);
+    ctx.restore();
+    if (visible || p.pose === "burrow") {
+      const height = p.pose === "stone" ? e.h * 0.72 : DWR.ForgeMotion.howlGeometry(e).height;
+      const barY = FLOOR - height - (e.def.armor ? 20 : 12), width = e.def.armor ? 116 : 74;
+      ctx.save();
+      // Во время перемещения сохраняем видимым остаток здоровья того же элементаля.
+      if (!visible) ctx.globalAlpha *= 0.55;
+      bar(ctx, e.x, barY, width, 8, e.hp / e.maxHp, e.taunted ? "#e1a05e" : "#b8563e");
+      if (e.armor > 0) bar(ctx, e.x, barY + 10, width, 6, e.armor / e.def.armor, "#a8cce7");
+      const showName = e.boss && (e.def.spritePoses || e.def.motion || e.def.rift);
+      if (showName) text(ctx, e.def.name, e.x, barY - 10, "600 18px", "#f6ddcf", "center");
+      if (visible) drawStatusBadges(ctx, e, showName ? 23 : 0, height);
+      ctx.restore();
+    } else if (e.def.death && p.poseT < 1) drawBossDeathFx(ctx, e, p.poseT);
+  }
+
+  function drawHeroUnit(ctx, h) {
+    if (!h.alive && !R.deaths.has(h)) return;
+    const { id } = h;
+    const p = unitPose(h);
+    if (h.alive) shadow(ctx, h.x, 52);
+    const spike = DWR.Sim.spikeElevation(h);
+    if (spike.height > 0) DWR.RiftMotion.drawSpike(ctx, h.x, FLOOR, spike.sourceHeight, spike.height);
+    const cast = h.attackPose?.spell && h.attackPose;
+    if (cast && h.alive) {
+      const { castTime, recovery } = DWR.CONFIG.skills[cast.spell];
+      p.poseT = cast.released ? 0.60 + 0.40 * (cast.t - castTime) / recovery : 0.60 * cast.t / castTime;
+      if (!cast.released) drawSpellCharge(ctx, h, cast.spell, cast.t / castTime);
+    }
+    const castReleased = cast?.released || id === "priest" && R.sim.attacks.some(shot => shot.kind === "fire" && shot.startX !== null);
+    const drawUnit = R.hoverTarget === h ? DWR.Chars.drawOutlined : DWR.Chars.draw;
+    drawUnit(ctx, { kind: id, x: h.x, y: FLOOR - spike.lift, h: h.h, facing: h.facing, ...p,
+      castReleased, flash: (R.flash.get(h) || 0) / 0.18 }, R.time);
+    if (h.alive) {
+      ctx.save();
+      ctx.translate(0, -spike.lift);
+      if (h.blockT > 0) drawBlockBubble(ctx, h);
+      const barrier = h.effects.get("healBarrier");
+      if (barrier) drawHealBarrier(ctx, h, barrier);
+      const ice = h.effects.get("frozen");
+      if (ice) drawIceBlock(ctx, h.x, h.h, Math.min(1, (ice.duration - ice.left) / ICE_GROW));
+      if (h.effects.has("burning") || h.effects.has("ember") || h.effects.has("riftBurn") ||
+          h.effects.has("riftCloakBurn")) drawBurning(ctx, h);
+      ctx.restore();
+      drawStatusBadges(ctx, h, spike.lift);
     }
   }
 
@@ -1312,7 +1344,7 @@ DWR.Run = (function () {
 
   function drawLoot(ctx) {
     const coinImg = DWR.Assets.img.coin;
-    const p = !R.drag && worldPoint(DWR.Input.x, DWR.Input.y);
+    const p = !R.aim && worldPoint(DWR.Input.x, DWR.Input.y);
     for (const it of R.items) {
       const { size, color } = LOOT_ART[it.type];
       if (p && it.grounded && nearLoot(p, it)) {
@@ -1919,7 +1951,7 @@ DWR.Run = (function () {
       const r = partyCard(i), cy = r.y + 10;
       const [resource, key, color] = PARTY[id];
       const hp = h.hp / h.maxHp;
-      const border = (R.flash.get(h) || 0) > 0 ? "#bf7473" : "#353542";
+      const border = R.hoverTarget === h ? "#ffd092" : (R.flash.get(h) || 0) > 0 ? "#bf7473" : "#353542";
       box(ctx, r.x, r.y, r.w, r.h, "#191a23", border);
       box(ctx, 44, cy, 49, 56, "#262632", "#353542", 6);
       const img = DWR.Assets.img[id];
@@ -1977,11 +2009,15 @@ DWR.Run = (function () {
     }
   }
 
-  function drawDragHint(ctx) {
+  function drawAimHint(ctx) {
     let label = R.notice?.until > R.time ? R.notice.text : "";
-    if (R.drag) label = R.drag.kind === "skill" ? "Отпустите над врагом"
-      : R.drag.kind === "ground" ? (DWR.CONFIG.skills[R.drag.id].stock ? "Выберите место взрыва" : "Отпустите над полем боя")
-      : "Отпустите над героем или его карточкой";
+    if (R.aim) {
+      const skill = DWR.CONFIG.skills[R.aim.id];
+      const target = R.aim.kind === "targeted" ? "врага"
+        : R.aim.kind === "ground" ? "точку на поле боя"
+        : skill?.targetEnemies ? "героя, его карточку или врага" : "героя или его карточку";
+      label = (R.aim.press ? "Перетащите на " : "ЛКМ — выбрать ") + target;
+    }
     if (!label) return;
     const center = BOARD.x + BOARD.w / 2;
     const top = BOARD.y + 14;
@@ -2008,7 +2044,7 @@ DWR.Run = (function () {
   return {
     start, frame,
     get state() { return R; },
-    onMouseMove, onDown, onUp, onClick, onContextMenu, cancelDrag, dropTargetAt,
+    onMouseMove, onDown, onUp, onClick, onContextMenu, cancelAim, dropTargetAt,
     _frameCtx: null
   };
 })();

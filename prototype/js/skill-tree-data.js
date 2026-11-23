@@ -49,6 +49,11 @@ DWR.SKILL_TREES = {
       upgradeNode("righteousFuryHeal", "Стойкость духа", "+1 п. п. к доле здоровья, восстанавливаемого «Праведной яростью»", [280, 1.9], 4, upgradeStat("righteousFuryHeal", 0.01), "righteousFury"),
       costReduction("righteousFuryCost", "Сдержанная ярость", "−2 ярости к стоимости «Праведной ярости» за ранг", 2, "righteousFury", 3)
     ] },
+    { id: "taunt", name: "Провокация", nodes: [
+      activeNode("taunt", "Провокация", "Враги в текущем бою направляют следующую обычную атаку на воина и при необходимости обходят его союзников. 25 ярости, перезарядка 25 с"),
+      upgradeNode("tauntHaste", "Боевой вызов", "−2 с к перезарядке «Провокации» за ранг", 75, 4, upgradeStat("tauntHaste", 2), "taunt"),
+      costReduction("tauntCost", "Экономная провокация", "−3 ярости к стоимости «Провокации» за ранг", 3, "taunt", 3)
+    ] },
     { id: "resolve", name: "Стойкость и ярость", nodes: [
       upgradeNode("wHp", "Здоровье", "+15 к максимуму HP воина", 15, 10, upgradeStat("wHp", 15)),
       upgradeNode("wArmor", "Закалённая броня", "−4% к получаемому воином урону", 90, 4, upgradeStat("wArmor", 0.04), "wHp", 3),
@@ -59,7 +64,7 @@ DWR.SKILL_TREES = {
   ] },
   priest: { name: "Жрица", branches: [
     { id: "light", name: "Лечение", nodes: [
-      activeNode("heal", "Лечение", "Доступно с начала игры. Восстанавливает 25 ОЗ за 4 маны. ЛКМ включает авто, перетаскивание выбирает цель"),
+      activeNode("heal", "Лечение", "Доступно с начала игры. Восстанавливает 25 ОЗ за 4 маны. ПКМ переключает авто. Для ручного лечения нажмите ЛКМ по навыку и герою или перетащите навык на героя"),
       upgradeNode("healPow", "Сила света", "+8 к лечению", 17, 10, upgradeStat("healPow", 8), "heal"),
       masteryNode("healBarrier", "Последний свет", "«Лечение» цели с ОЗ ниже 35% даёт ей щит на 3 с. Щит поглощает 8 ОЗ урона за ранг, до 24. Щиты не складываются", 900, upgradeStat("healBarrier", 8), "healPow", 10),
       upgradeNode("healHaste", "Быстрая молитва", "−0,65 с к перезарядке лечения", 75, 4, upgradeStat("healHaste", 0.65), "healPow", 3),
@@ -132,7 +137,7 @@ DWR.SKILL_TREES = {
       upgradeNode("rFocusRegen", "Сосредоточение", "+1 фокуса в секунду в бою", 110, 3, upgradeStat("rFocusRegen", 1), "rFocusKill", 2)
     ] },
     { id: "traps", name: "Мастер ловушек", nodes: [
-      activeNode("bomb", "Бомба", "Одна бомба на старте забега при экипировке. Перетащите на поле. Базовый урон — 38, радиус — 118"),
+      activeNode("bomb", "Бомба", "Одна бомба на старте забега при экипировке. Нажмите ЛКМ по навыку и точке на поле или перетащите бомбу на поле. Базовый урон — 38, радиус — 118"),
       upgradeNode("bombStock", "Запас бомб", "+1 бомба на старте рейда за ранг", 95, 4, upgradeStat("bombStock", 1), "bomb"),
       upgradeNode("bombDamage", "Мощный заряд", "+8 к урону бомбы за ранг", 110, 4, upgradeStat("bombDamage", 8), "bomb"),
       upgradeNode("bombRadius", "Широкий взрыв", "+18 к радиусу взрыва за ранг", 90, 4, upgradeStat("bombRadius", 18), "bomb"),

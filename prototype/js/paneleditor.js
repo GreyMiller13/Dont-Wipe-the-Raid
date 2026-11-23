@@ -3,8 +3,6 @@
 window.DWR = window.DWR || {};
 
 DWR.PanelEditor = (function () {
-  const ACTIONS = { targeted: "Перетащить на врага", instant: "Нажать",
-    ally: "Перетащить на героя", auto: "ЛКМ включает авто", potion: "Перетащить на героя", ground: "Перетащить на поле" };
   const RESOURCES = { rage: "ярости", focus: "фокуса", mana: "маны" };
   let toastTimer = null;
 
@@ -133,9 +131,7 @@ DWR.PanelEditor = (function () {
       .filter(id => S.hasSkill(id) && !data.panel.includes(id))
       .map(id => {
         const sk = DWR.CONFIG.skills[id];
-        const action = sk.auto && sk.type === "instant" ? "ПКМ применяет · ЛКМ переключает авто"
-          : (sk.targetEnemies ? "Перетащить на героя или врага" : ACTIONS[sk.type])
-            + (sk.auto && sk.type !== "auto" ? " или авто" : "");
+        const action = DWR.Panel.actionHint(sk);
         const detail = Object.hasOwn(stocks, id)
           ? `${stocks[id] ? `На старте ×${stocks[id]}` : "Подбирается в бою"} · ${action}`
           : `${sk.cost} ${RESOURCES[sk.res]} · ${action}`;

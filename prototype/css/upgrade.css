@@ -159,6 +159,22 @@
 .up-node-icon { display: inline-block; width: 60px; height: 60px; object-fit: contain; image-rendering: pixelated; }
 .up-socket small { position: absolute; bottom: 6px; color: inherit; font: 700 12px/1 "Segoe UI", sans-serif; }
 .up-tier-mark { position: absolute; top: 8px; right: 11px; color: var(--branch); font: 700 13px/1 Georgia, serif; }
+.up-currency-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  z-index: 1;
+  width: 32px;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 3px;
+  border: 1.5px solid #9a806d;
+  border-radius: 50%;
+  background: #1d1926;
+  object-fit: contain;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
 .up-socket:has(small) .up-node-icon { transform: translateY(-6px); }
 .up-detail .up-node-icon { width: 28px; height: 28px; margin-right: 7px; vertical-align: middle; }
 .up-socket-learned, .up-socket-full {
@@ -167,10 +183,11 @@
 }
 .up-socket-buyable { border-color: color-mix(in srgb, var(--branch) 84%, #29242e); }
 .up-socket-open .up-pixel-glyph, .up-socket-buyable .up-pixel-glyph { filter: grayscale(.55) brightness(.8); }
-.up-socket:hover, .up-socket:focus-visible, .up-socket[aria-pressed="true"] { color: var(--branch); border-color: var(--branch); }
-.up-socket[aria-pressed="true"] { box-shadow: 0 0 0 3px #17131f, 0 0 0 5px var(--branch); }
-.up-socket-active, .up-socket-active:is(:hover, :focus-visible, [aria-pressed="true"]) { border-color: #e7b968; }
-.up-socket-active[aria-pressed="true"] { box-shadow: 0 0 0 3px #17131f, 0 0 0 5px #e7b968, 0 0 20px #f7c26450; }
+.up-socket:hover, .up-socket:focus-visible, .up-socket[aria-current="true"] { color: var(--branch); border-color: var(--branch); }
+.up-socket[aria-current="true"] { box-shadow: 0 0 0 3px #17131f, 0 0 0 5px var(--branch); }
+.up-socket-active, .up-socket-active:is(:hover, :focus-visible, [aria-current="true"]) { border-color: #e7b968; }
+.up-socket-active[aria-current="true"] { box-shadow: 0 0 0 3px #17131f, 0 0 0 5px #e7b968, 0 0 20px #f7c26450; }
+.up-socket[aria-pressed="true"] { outline: 3px solid var(--ink); outline-offset: 6px; }
 .up-socket-active::before {
   position: absolute;
   inset: 2px;
@@ -184,8 +201,7 @@
 @media (prefers-reduced-motion: reduce) {
   .up-socket-active::before { animation: none; }
 }
-.up-details { min-height: 58px; }
-.up-detail-empty { margin: 0; padding: 15px 3px; color: var(--muted); font-size: 14px; text-align: center; }
+.up-details { min-height: 76px; }
 .up-detail {
   display: grid;
   grid-template-columns: minmax(178px, max-content) minmax(0, max-content) 100px minmax(122px, max-content);

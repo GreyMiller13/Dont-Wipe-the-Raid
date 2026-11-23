@@ -6,7 +6,7 @@ DWR.ForgeMotion = (function () {
   const forgeCell = { w: 200, h: 160, x: 108, feet: 155, columns: 5, body: 120 };
   const largeCell = { w: 352, h: 208, x: 187, feet: 198, columns: 5, body: 132 };
   const models = {
-    goblinW: { file: "dungeon-goblin-warrior.webp", heights: [134, 119, 98, 57],
+    goblinW: { file: "dungeon-goblin-warrior-v2.webp", heights: [134, 119, 98, 57],
       bounds: [[107, 235], [115, 265], [100, 273], [84, 291]] },
     goblinA: { file: "dungeon-goblin-archer.webp", arrow: [125, 104], heights: [133, 118, 104, 68],
       bounds: [[131, 229], [127, 232], [120, 242], [96, 278]] },
