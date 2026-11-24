@@ -109,6 +109,7 @@ DWR.Run = (function () {
       aim: null,                            // press задан, пока ЛКМ удерживается на пути от слота или зелья
       hoverTarget: null, potionHover: null, time: 0, flash: new Map()
     };
+    DWR.State.beginRaid(location, treasureOnly);
     loadRoom(0);
   }
 
@@ -186,10 +187,8 @@ DWR.Run = (function () {
 
   // --- Завершение забега ---
   function finalize(reason) {
-    const st = DWR.State.data;
     if (reason === "win" && !R.treasureOnly) R.runCoins += R.sim.stats.raidVictoryCoins;
-    st.coins += R.runCoins;
-    DWR.State.save();
+    DWR.State.finishRaid(reason, R.runCoins);
     const currentCleared = curRoom().chest ? R.chestOpened : !DWR.Sim.inBattle(R.sim) && !hasEscapingBoss();
     DWR.showResults({
       reason, coins: R.runCoins, runes: R.runRunes,
@@ -271,6 +270,7 @@ DWR.Run = (function () {
       R.phaseT += dt;
       if (R.phaseT >= DWR.CONFIG.fadeSec) {
         R.phase = "room";
+        if (curRoom().boss) DWR.State.reachRaidBoss();
         recordEncounters();
       }
       return;
@@ -297,6 +297,7 @@ DWR.Run = (function () {
     }
     const wasInBattle = DWR.Sim.inBattle(sim);
     DWR.Sim.tick(sim, dt);
+    if (sim.over === "wipe") DWR.State.markRaidWipe();
     recordEncounters();
     if (wasInBattle && !sim.over && !curRoom().boss && !DWR.Sim.inBattle(sim) && sim.stats.roomCoins > 0) {
       R.runCoins += sim.stats.roomCoins;
@@ -623,7 +624,7 @@ DWR.Run = (function () {
   }
   function menuClick(x, y) {
     if (R.menu.confirm) {
-      if (inRect(x, y, PAUSE.yes)) finalize("retreat");
+      if (inRect(x, y, PAUSE.yes)) finalize(R.sim.over === "wipe" ? "wipe" : "retreat");
       else if (inRect(x, y, PAUSE.no)) R.menu.confirm = false;
     } else if (inRect(x, y, PAUSE.retreat)) {
       R.menu.confirm = true;
@@ -800,7 +801,7 @@ DWR.Run = (function () {
     const cloak = e.effects.get("riftCloak");
     drawUnit(ctx, { kind: e.kind, x: e.x, y: FLOOR, h: e.h, facing: e.facing, attack, ...p, externalEffects: true,
       cloakT: cloak && e.alive ? (cloak.duration - cloak.left) / DWR.RiftMotion.clips.burning.duration : undefined,
-      enraged: e.effects.has("kragRage"), fallForward: e.x + e.h > CV().w,
+      enraged: e.kind === "krag" && e.armor === 0, fallForward: e.x + e.h > CV().w,
       flash: (R.flash.get(e) || 0) / 0.18 }, R.time);
     ctx.restore();
     if (visible || p.pose === "burrow") {
@@ -2032,8 +2033,9 @@ DWR.Run = (function () {
   }
 
   // --- Кадр (вызывает main.js) ---
-  function frame(dt) {
+  function frame(dt, elapsed = dt) {
     if (!R) return;
+    if (R.phase !== "wipeDelay" && !R.sim.over && !R.menu && !document.hidden) DWR.State.advanceRaidTime(elapsed);
     if (!DWR.Run._frameCtx)
       DWR.Run._frameCtx = document.getElementById("game-canvas").getContext("2d");
     const ctx = DWR.Run._frameCtx;

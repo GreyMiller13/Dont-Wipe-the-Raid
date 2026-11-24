@@ -50,6 +50,8 @@ DWR.State = (function () {
       riftDone: false,
       bestiary: {},            // { id локации: виды встреченных противников }
       treasuresOpened: {},     // { id локации: открыт ли сундук за первое убийство }
+      raidStats: { seconds: 0, coins: 0, runes: 0, starts: 0, win: 0, retreat: 0, wipe: 0,
+        locations: {}, active: null, partial: false },
       settings: { music: 0.7, sound: 0.8 }
     };
   }
@@ -67,7 +69,9 @@ DWR.State = (function () {
           const value = saved.settings?.[key];
           if (Number.isFinite(value)) settings[key] = Math.min(1, Math.max(0, value));
         }
-        data = Object.assign(defaults, saved, { settings });
+        const raidStats = { ...defaults.raidStats, ...saved.raidStats };
+        if (saved.started && !saved.raidStats) raidStats.partial = true;
+        data = Object.assign(defaults, saved, { settings, raidStats });
         data.bestiary = loadBestiary(saved);
         resizePanel();
         if (data.started && !Object.hasOwn(saved, "runes")) {
@@ -84,6 +88,7 @@ DWR.State = (function () {
             else if (free !== -1) data.panel[free] = "heal";
           }
         }
+        if (data.raidStats.active) finishRaid(data.raidStats.active.wiped ? "wipe" : null);
       }
     } catch (e) { data = fresh(); }
     return data;
@@ -95,6 +100,60 @@ DWR.State = (function () {
     data = { ...fresh(), settings: data.settings };
     save();
   }
+
+  function raidLocation(id) {
+    return data.raidStats.locations[id] ??= { attempts: 0, bossReached: 0, bossVictories: 0,
+      firstVictory: null, bestBossSeconds: null, retreat: 0, wipe: 0 };
+  }
+
+  function beginRaid(location, treasureOnly) {
+    const stats = data.raidStats;
+    if (!treasureOnly) {
+      stats.starts++;
+      raidLocation(location).attempts++;
+    }
+    stats.active = { location, treasureOnly, seconds: 0, bossStartedAt: null, bossDefeated: false, wiped: false };
+    save();
+  }
+
+  function advanceRaidTime(seconds) {
+    const raid = data.raidStats.active;
+    if (!raid) return;
+    const checkpoint = Math.floor(raid.seconds / 5);
+    raid.seconds += seconds;
+    // Контрольная запись нужна на случай, если закрытие вкладки не успеет сохранить время.
+    if (Math.floor(raid.seconds / 5) !== checkpoint) save();
+  }
+
+  function reachRaidBoss() {
+    const raid = data.raidStats.active;
+    if (!raid || raid.treasureOnly || raid.bossStartedAt !== null) return;
+    raid.bossStartedAt = raid.seconds;
+    raidLocation(raid.location).bossReached++;
+    save();
+  }
+
+  function markRaidWipe() {
+    const raid = data.raidStats.active;
+    if (!raid || raid.wiped) return;
+    raid.wiped = true;
+    save();
+  }
+
+  function finishRaid(reason, coins = 0) {
+    const stats = data.raidStats, raid = stats.active;
+    if (!raid) return;
+    stats.seconds += raid.seconds;
+    stats.coins += coins;
+    data.coins += coins;
+    if (!raid.treasureOnly && reason !== null) {
+      stats[reason]++;
+      if (reason === "retreat" || reason === "wipe") raidLocation(raid.location)[reason]++;
+    }
+    stats.active = null;
+    save();
+  }
+
   function locationCleared(id) {
     const key = DWR.CONFIG.locations[id]?.progress;
     return !!(key && data[key]);
@@ -131,10 +190,22 @@ DWR.State = (function () {
     save();
   }
   function completeLocation(id) {
-    if (locationCleared(id)) return;
-    data.treasuresOpened[id] = false;
-    data[DWR.CONFIG.locations[id].progress] = true;
-    save();
+    const first = !locationCleared(id);
+    const raid = data.raidStats.active;
+    const victorious = raid?.location === id && raid.bossStartedAt !== null && !raid.bossDefeated;
+    if (victorious) {
+      const stats = raidLocation(id);
+      const seconds = raid.seconds - raid.bossStartedAt;
+      raid.bossDefeated = true;
+      stats.bossVictories++;
+      if (first) stats.firstVictory = stats.attempts;
+      if (stats.bestBossSeconds === null || seconds < stats.bestBossSeconds) stats.bestBossSeconds = seconds;
+    }
+    if (first) {
+      data.treasuresOpened[id] = false;
+      data[DWR.CONFIG.locations[id].progress] = true;
+    }
+    if (first || victorious) save();
   }
   function treasureUnopened(id) {
     if (DWR.CONFIG.locations[id]?.treasure == null) return false;
@@ -148,6 +219,7 @@ DWR.State = (function () {
     if (!treasureAvailable(id)) return false;
     data.treasuresOpened[id] = true;
     data.runes++;
+    data.raidStats.runes++;
     save();
     return true;
   }
@@ -276,6 +348,7 @@ DWR.State = (function () {
     get data() { return data; },
     load, save, reset, locationCleared, locationUnlocked, completeLocation, bombStock,
     locationEnemies, recordEncounters,
+    beginRaid, advanceRaidTime, reachRaidBoss, markRaidWipe, finishRaid,
     treasureUnopened, treasureAvailable, openTreasure,
     nodeDef, nodeCount, nodePrice, nodeCurrency, nodeUnlocked, nodeBuyable, buyNode, hasSkill, autoEnabled, setAuto,
     skillResetInfo, resetSkills,

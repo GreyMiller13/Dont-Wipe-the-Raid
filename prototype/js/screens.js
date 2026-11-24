@@ -13,7 +13,8 @@ DWR.Screens = (function () {
 
   const menuButton = (id, label, attrs = "") => `
     <button id="scr-btn-${id}" class="btn" ${attrs}>
-      <img src="${DWR.Assets.assetUrl("menu-" + id + ".png")}" alt="">${label}
+      ${id === "stats" ? '<span class="scr-menu-stats-icon" aria-hidden="true"></span>'
+        : `<img src="${DWR.Assets.assetUrl("menu-" + id + ".png")}" alt="">`}${label}
     </button>`;
 
   // ---------- Экран: главное меню ----------
@@ -30,12 +31,13 @@ DWR.Screens = (function () {
             ${started ? menuButton("continue", "Продолжить") : ""}
             ${menuButton("new", "Новая игра", started ? 'aria-haspopup="dialog"' : "")}
             ${started ? "" : menuButton("continue", "Продолжить", "disabled")}
+            ${started ? menuButton("stats", "Статистика", 'aria-haspopup="dialog" aria-controls="scr-raid-stats"') : ""}
             ${menuButton("settings", "Настройки", 'aria-haspopup="dialog"')}
           </div>
         </div>
       </main>
       ${settingsDialog()}
-      ${started ? newGameDialog() : ""}`;
+      ${started ? newGameDialog() + raidStatsDialog() : ""}`;
 
     const startNew = () => {
       S.reset();
@@ -47,6 +49,7 @@ DWR.Screens = (function () {
     const newButton = el.querySelector("#scr-btn-new");
     if (started) {
       el.querySelector("#scr-btn-continue").addEventListener("click", returnToCamp);
+      bindDialog(el.querySelector("#scr-btn-stats"), el.querySelector("#scr-raid-stats"));
       const confirm = el.querySelector("#scr-confirm-new");
       bindDialog(newButton, confirm);
       confirm.querySelector("#scr-btn-confirm-yes").addEventListener("click", () => {
@@ -55,6 +58,65 @@ DWR.Screens = (function () {
       });
     } else newButton.addEventListener("click", startNew);
     bindSettings(el);
+  }
+
+  const raidNumbers = new Intl.NumberFormat("ru-RU");
+
+  function raidDuration(seconds) {
+    const total = Math.floor(seconds);
+    const hours = Math.floor(total / 3600), minutes = Math.floor(total / 60) % 60;
+    return `${hours ? `${raidNumbers.format(hours)} ч ` : ""}${hours || minutes ? `${minutes} мин ` : ""}${total % 60} с`;
+  }
+
+  function raidStatsDialog() {
+    const stats = S.data.raidStats;
+    const metric = (title, value, icon = "") => `
+      <div><dt>${icon ? `<img src="assets/out/${icon}.png" alt="">` : ""}${title}</dt><dd>${value}</dd></div>`;
+    const count = (title, value) => metric(title, raidNumbers.format(value));
+    const locations = Object.entries(DWR.CONFIG.locations).filter(([id, location]) =>
+      location.rooms.length && S.locationUnlocked(id));
+    const rows = locations.map(([id, location]) => {
+      const entry = stats.locations[id];
+      const first = entry?.firstVictory != null ? `<strong>С ${raidNumbers.format(entry.firstVictory)}-й попытки</strong>`
+        : S.locationCleared(id) ? 'Побеждён ранее<small>Число попыток неизвестно</small>' : 'Ещё не побеждён';
+      const number = key => raidNumbers.format(entry?.[key] ?? 0);
+      return `<tr>
+        <th scope="row">${location.name}</th>
+        <td>${number("attempts")}</td><td>${number("bossReached")}</td>
+        <td class="scr-raid-first">${first}</td><td>${number("bossVictories")}</td>
+        <td>${number("retreat")}</td><td>${number("wipe")}</td>
+        <td>${entry?.bestBossSeconds != null ? raidDuration(entry.bestBossSeconds) : "—"}</td>
+      </tr>`;
+    }).join("");
+    return `<dialog class="scr-dialog scr-raid-stats" id="scr-raid-stats" aria-labelledby="scr-raid-stats-title">
+      <form method="dialog">
+        <header class="scr-dialog-header">
+          <h2 class="scr-h2" id="scr-raid-stats-title">Статистика</h2>
+          <button class="btn scr-dialog-close" aria-label="Закрыть статистику" autofocus></button>
+        </header>
+        <dl class="scr-raid-totals">
+          ${metric("Время в рейдах", raidDuration(stats.seconds))}
+          ${metric("Заработано монет", raidNumbers.format(stats.coins), "coin")}
+          ${metric("Заработано рун", raidNumbers.format(stats.runes), "rune")}
+        </dl>
+        <dl class="scr-raid-outcomes">
+          ${count("Заходы", stats.starts)}${count("Завершено", stats.win)}${count("Отступления", stats.retreat)}
+          ${count("Вайпы", stats.wipe)}
+        </dl>
+        <div class="scr-raid-table">
+          <table>
+            <caption>Прогресс по локациям</caption>
+            <thead><tr>
+              <th scope="col">Локация</th><th scope="col">Заходы</th><th scope="col">Дошли до босса</th>
+              <th scope="col">Первая победа</th><th scope="col">Победы над боссом</th>
+              <th scope="col">Отступления</th><th scope="col">Вайпы</th><th scope="col">Лучший бой</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        ${stats.partial ? '<p class="scr-raid-note">Счётчики включают рейды с момента появления статистики.</p>' : ""}
+      </form>
+    </dialog>`;
   }
 
   function newGameDialog() {

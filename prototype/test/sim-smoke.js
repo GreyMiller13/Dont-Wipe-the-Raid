@@ -335,18 +335,45 @@ check("рассеивание не тратится на героя без де�
 S.applyStatus(chosen, "healWard", 10);
 S.applyStatus(chosen, "burning");
 S.applyStatus(chosen, "bleeding");
+S.applyStatus(chosen, "riftImpaled");
+chosen.effects.get("riftImpaled").height = 300;
 check("ручное рассеивание тратит 10 маны и начинает каст", S.useDispel(run, chosen.id) && caster.mana === caster.manaMax - 10 &&
   chosen.effects.has("burning"));
 stepFor(run, skills.dispel.castTime + 0.01);
-check("рассеивание снимает один дебафф выбранного героя и сохраняет бафф", !chosen.effects.has("burning") &&
-  chosen.effects.has("bleeding") && chosen.effects.has("healWard"));
+check("рассеивание снимает все ослабления выбранного героя и сохраняет усиление",
+  chosen.effects.size === 1 && chosen.effects.has("healWard") && S.skillStatus(run, "dispel").left > 11.9);
+run = prepareForge(rangedRoom);
+const buffedEnemy = run.enemies[0];
+for (const id of ["boneFury", "orcWarCry", "orcGuard", "stunned"]) S.applyStatus(buffedEnemy, id);
+check("рассеивание можно направить на противника с несколькими усилениями", S.useDispel(run, buffedEnemy.uid));
+stepFor(run, skills.dispel.castTime + 0.01);
+check("рассеивание снимает все усиления противника и сохраняет оглушение",
+  buffedEnemy.effects.size === 1 && buffedEnemy.effects.has("stunned"));
 run = prepareForge(rangedRoom);
 S.setAuto(run, "dispel", true);
+S.applyStatus(run.enemies[0], "orcGuard");
 S.applyStatus(run.heroes.warrior, "burning");
 S.applyStatus(run.heroes.ranger, "frozen");
 stepFor(run, 0.4);
 check("авторассеивание сначала освобождает героя от контроля", !run.heroes.ranger.effects.has("frozen") &&
-  run.heroes.warrior.effects.has("burning") && run.fx.some(fx => fx.type === "thaw"));
+  run.heroes.warrior.effects.has("burning") && run.enemies[0].effects.has("orcGuard") && run.fx.some(fx => fx.type === "thaw"));
+
+run = prepareForge(DWR.CONFIG.locations.wilds.rooms.at(-1));
+const regeneratingLycan = run.enemies.find(enemy => enemy.def.regen);
+const woundedLycanHp = regeneratingLycan.hp = regeneratingLycan.maxHp / 2;
+regeneratingLycan.regenT = regeneratingLycan.def.regen.interval;
+S.applyStatus(regeneratingLycan, "lycanRegen", Infinity);
+S.setAuto(run, "dispel", true);
+const lycanCaster = run.heroes.priest;
+check("на одну регенерацию Ликантропа нельзя применить ручное рассеивание",
+  !S.canDispelEnemy(regeneratingLycan) && !S.useDispel(run, regeneratingLycan.uid));
+stepFor(run, 0.4);
+check("авторассеивание пропускает регенерацию Ликантропа", lycanCaster.mana === lycanCaster.manaMax);
+S.applyStatus(regeneratingLycan, "orcWarCry");
+stepFor(run, 1);
+check("авторассеивание убирает другие усиления Ликантропа, а регенерация продолжает лечить",
+  !regeneratingLycan.effects.has("orcWarCry") && regeneratingLycan.effects.has("lycanRegen") &&
+  regeneratingLycan.hp > woundedLycanHp && lycanCaster.mana === lycanCaster.manaMax - 10);
 
 run = prepareForge(rangedRoom);
 const party = Object.values(run.heroes);
@@ -852,9 +879,18 @@ check("снижение стоимости навыка сохраняет до�
 // --- Тир II: пороги открытия, урон и защита ---
 const masteries = pricedNodes.filter(node => node.tier === 2);
 state.reset();
-state.data.coins = 50000;
-check("шесть узлов второго тира требуют полный ранг родителя и стоят от 700 до 900 монет",
-  masteries.length === 6 && masteries.every(node => {
+state.data.coins = 60000;
+const healthNodes = ["wHp", "pHp", "rHp"];
+check("здоровье всех героев можно прокачивать сразу", healthNodes.every(id => state.nodeBuyable(id)));
+check("темп воина и скорость атаки лучника открываются на третьем ранге основного урона",
+  [["wDmg", "wTempo"], ["rDmg", "rSpeed"]].every(([damage, speed]) => {
+    state.data.upgrades[damage] = 2;
+    const locked = !state.nodeUnlocked(speed);
+    state.data.upgrades[damage]++;
+    return locked && state.nodeUnlocked(speed);
+  }));
+check("десять узлов второго тира требуют полный ранг родителя и стоят от 700 до 900 монет",
+  masteries.length === 10 && masteries.every(node => {
     const parent = state.nodeDef(node.parent);
     state.data.upgrades[parent.id] = parent.max - 1;
     const hidden = !state.nodeUnlocked(node.id);
@@ -863,12 +899,20 @@ check("шесть узлов второго тира требуют полный
     return hidden && state.nodeUnlocked(node.id) && node.max === 3 && price >= 700 && price <= 900 &&
       state.nodeCurrency(node.id) === "coins";
   }));
+check("первый ранг крепкого здоровья дороже последнего ранга здоровья", healthNodes.every(id => {
+  const parent = state.nodeDef(id);
+  return state.nodePrice(id + "Mastery") > DWR.skillRankPrice(parent, parent.max);
+}));
 for (const node of masteries) {
   for (let rank = 0; rank < node.max; rank++) state.buyNode(node.id);
 }
 check("второй тир добавляет урон к исходным навыкам и не даёт купить четвёртый ранг",
   masteries.every(node => state.nodeCount(node.id) === 3 && !state.nodeBuyable(node.id)) &&
-  state.stats().wDmg === 32 && state.stats().fireDmg === 44 && state.stats().rPrecision === 85);
+  state.stats().wDmg === 32 && state.stats().rDmg === 24 && state.stats().fireDmg === 44 && state.stats().rPrecision === 85);
+const masteryParty = S.createRun().heroes;
+check("кованые наконечники увеличивают базовый урон лучника в рейде", masteryParty.ranger.dmg === 30);
+check("ранги крепкого здоровья добавляются к запасу ОЗ всех героев в рейде",
+  masteryParty.warrior.maxHp === 315 && masteryParty.priest.maxHp === 164 && masteryParty.ranger.maxHp === 154);
 run = prepareForge(rangedRoom);
 run.equipped.add("fireball");
 run.equipped.add("preciseShot");
@@ -983,11 +1027,12 @@ try {
   S.tick(run, 0);
   check("Повторное падение ниже 50% ОЗ не запускает каменную форму", stone.attack?.riftMove !== "petrify");
   S.applyStatus(stone, "riftStone");
+  S.applyStatus(stone, "orcWarCry");
   run.equipped.add("dispel");
   check("Ручное рассеивание можно направить на каменного элементаля", S.useDispel(run, stone.uid));
   stepFor(run, skills.dispel.castTime + 0.02);
-  check("Рассеивание запускает выход из каменной формы",
-    !stone.effects.has("riftStone") && stone.rift.motion?.name === "unstone");
+  check("Рассеивание запускает выход из каменной формы и снимает другие усиления",
+    !stone.effects.has("riftStone") && !stone.effects.has("orcWarCry") && stone.rift.motion?.name === "unstone");
 
   run = prepareForge(riftBossRoom);
   const castEarth = run.enemies[0];
@@ -1002,10 +1047,9 @@ try {
     castEarth.attack?.riftMove === "petrify" && castEarth.attack.t === 0 &&
     run.attacks.some(shot => shot.kind === "riftBoulder" && shot.caster === castEarth));
   run.equipped.add("dispel");
-  S.useDispel(run, castEarth.uid);
-  stepFor(run, skills.dispel.castTime + 0.05);
-  check("Рассеивание прерывает окаменение на пороге без повторного каста",
-    !castEarth.attack && !castEarth.effects.has("riftStone"));
+  const availableMana = run.heroes.priest.mana;
+  check("Рассеивание доступно после наложения каменной формы",
+    !S.useDispel(run, castEarth.uid) && run.heroes.priest.mana === availableMana && castEarth.attack?.riftMove === "petrify");
 
   run = prepareForge(rift.rooms[1]);
   const fire = run.enemies[1], party = run.heroes;

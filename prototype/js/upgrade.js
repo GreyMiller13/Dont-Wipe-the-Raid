@@ -24,7 +24,8 @@ DWR.Upgrade = (function () {
   const SKILL_ICONS = {
     wDmg: "blade", wTempo: "swift", wStride: "boot", wStrike: "sweep", powerStrikeHaste: "hourglass",
     wDmgMastery: "criticalBlade", wBossGuard: "shield", healBarrier: "shield",
-    fireDmgMastery: "flame", rPrecisionMastery: "preciseShot", rAreaGuard: "armor",
+    fireDmgMastery: "flame", rDmgMastery: "arrow", rPrecisionMastery: "preciseShot", rAreaGuard: "armor",
+    wHpMastery: "heart", pHpMastery: "heart", rHpMastery: "heart",
     powerStrikeCost: "efficiency", powerStrikeRefund: "burst", blockDur: "shield", blockHaste: "hourglass",
     blockCost: "efficiency", blockHeal: "heart", wHp: "heart", wArmor: "armor", wRageKill: "flame", wRageRegen: "cycle",
     sacrificeDuration: "shield", sacrificeHaste: "hourglass", dispelCost: "efficiency", dispelHaste: "hourglass",
@@ -37,7 +38,7 @@ DWR.Upgrade = (function () {
     noiseBombStock: "chest", noiseBombRadius: "spread", noiseBombStun: "hourglass",
     fireballUnlock: "vessel", manaPool: "drop", manaRegen: "cycle", manaOnKill: "spark", manaOnRoom: "door",
     potionLuck: "vessel", potionStr: "flask", pHp: "heart", potionSquadHeal: "squad",
-    rDmg: "arrow", rSpeed: "swift", rHp: "boot", rFan: "fan", multishotHaste: "hourglass",
+    rDmg: "arrow", rSpeed: "swift", rHp: "heart", rFan: "fan", multishotHaste: "hourglass",
     multishotCost: "efficiency", rExtraArrow: "spread", rPrecision: "arrow", preciseShotHaste: "hourglass",
     preciseShotCost: "efficiency", preciseBoss: "skull", rFocusKill: "target", rFocusRegen: "cycle",
     raidCoins: "coin", bossCoins: "skull", chestCoins: "chest", roomCoins: "scroll", raidVictoryCoins: "trophy",

@@ -50,12 +50,20 @@ window.DWR = window.DWR || {};
     document.getElementById("stage").style.setProperty("--stage-scale", k);
   }
   addEventListener("resize", fit);
+  function saveActiveRaid() {
+    if (current === "game") DWR.State.save();
+  }
+  addEventListener("pagehide", saveActiveRaid);
+  document.addEventListener("visibilitychange", () => {
+    lastTs = 0;
+    if (document.hidden) saveActiveRaid();
+  });
 
   // Игровой цикл
   function loop(ts) {
-    const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0);
+    const elapsed = lastTs ? (ts - lastTs) / 1000 : 0;
     lastTs = ts;
-    if (current === "game" && DWR.Run && DWR.Run.frame) DWR.Run.frame(dt);
+    if (current === "game" && DWR.Run && DWR.Run.frame) DWR.Run.frame(Math.min(0.05, elapsed), elapsed);
     requestAnimationFrame(loop);
   }
 

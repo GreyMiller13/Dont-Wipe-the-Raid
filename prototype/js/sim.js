@@ -1426,7 +1426,7 @@ DWR.Sim = (function () {
     return true;
   }
 
-  function chooseDebuff(hero) {
+  function highestPriorityDebuff(hero) {
     let best, priority = 0;
     for (const status of hero.effects.values()) {
       const weight = C().effects[status.id]?.dispelPriority || 0;
@@ -1442,7 +1442,7 @@ DWR.Sim = (function () {
     let best, bestEffect;
     for (const id of run.heroOrder) {
       const hero = run.heroes[id];
-      const effect = hero.alive && chooseDebuff(hero);
+      const effect = hero.alive && highestPriorityDebuff(hero);
       if (!effect) continue;
       const priority = C().effects[effect.id].dispelPriority;
       const bestPriority = bestEffect ? C().effects[bestEffect.id].dispelPriority : 0;
@@ -1455,20 +1455,21 @@ DWR.Sim = (function () {
   }
 
   function canDispelEnemy(enemy) {
-    if (!targetable(enemy)) return false;
-    return (enemy.attack?.riftMove === "petrify" && !enemy.attack.hit) ||
-      [...enemy.effects.keys()].some(id => C().effects[id]?.dispelBuff);
+    return targetable(enemy) && [...enemy.effects.keys()].some(id => C().effects[id]?.dispelBuff);
   }
 
-  function removeEnemySpell(run, enemy) {
-    if (!canDispelEnemy(enemy)) return;
-    if (enemy.effects.has("riftStone")) endStone(enemy);
-    else if (enemy.effects.has("riftCloak")) enemy.effects.delete("riftCloak");
-    else {
-      cancelRiftCast(enemy);
-      run.fx.push({ type: "castInterrupted", unit: enemy });
+  function dispelEffects(run, target, enemy) {
+    if (enemy ? !targetable(target) : !target?.alive) return;
+    let removed = false;
+    for (const id of target.effects.keys()) {
+      const effect = C().effects[id];
+      if (!(enemy ? effect?.dispelBuff : effect?.dispelPriority)) continue;
+      if (id === "riftStone") endStone(target);
+      else if (id === "frozen") thawHero(run, target);
+      else target.effects.delete(id);
+      removed = true;
     }
-    run.fx.push({ type: "dispel", unit: enemy });
+    if (removed) run.fx.push({ type: "dispel", unit: target });
   }
 
   function beginPriestCast(run, skillId, target) {
@@ -1486,16 +1487,9 @@ DWR.Sim = (function () {
     startSkillCooldown(run, pose.spell);
     const spec = C().skills[pose.spell];
     if (pose.spell === "dispel") {
-      if (typeof pose.target === "number") {
-        removeEnemySpell(run, run.enemies.find(enemy => enemy.uid === pose.target));
-        return;
-      }
-      const hero = run.heroes[pose.target];
-      const effect = hero.alive && chooseDebuff(hero);
-      if (!effect) return;
-      if (effect.id === "frozen") thawHero(run, hero);
-      else hero.effects.delete(effect.id);
-      run.fx.push({ type: "dispel", unit: hero });
+      const enemy = typeof pose.target === "number";
+      const target = enemy ? run.enemies.find(unit => unit.uid === pose.target) : run.heroes[pose.target];
+      dispelEffects(run, target, enemy);
     } else if (pose.spell === "massHeal") {
       for (const hero of Object.values(run.heroes)) {
         if (!hero.alive) continue;
@@ -1519,7 +1513,7 @@ DWR.Sim = (function () {
     }
     const target = run.heroes[id];
     if (run.over || !target?.alive) return false;
-    if (!chooseDebuff(target)) return "clean";
+    if (!highestPriorityDebuff(target)) return "clean";
     return beginPriestCast(run, "dispel", id);
   }
 
