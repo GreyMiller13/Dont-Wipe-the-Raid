@@ -442,6 +442,13 @@ DWR.Chars = (function () {
     if (unit.kind === "warrior" && pose !== "dead" && drawWarrior(ctx, unit, pose)) return;
     const baseImage = A.img[unit.kind];
     const enemy = DWR.CONFIG.enemies[unit.kind];
+    if (enemy?.city) {
+      ctx.save();
+      hitFlash(ctx, unit);
+      DWR.CityMotion.draw(ctx, A.img, unit, time);
+      ctx.restore();
+      return;
+    }
     if (enemy?.rift) {
       ctx.save();
       hitFlash(ctx, unit);

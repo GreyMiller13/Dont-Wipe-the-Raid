@@ -34,9 +34,10 @@ jobs:
 
       - name: Stage game files
         run: |
-          mkdir -p _site/assets
+          mkdir -p _site/assets/sprites
           cp -R prototype/index.html prototype/style.css prototype/css prototype/js _site/
           cp -R prototype/assets/out prototype/assets/backgrounds _site/assets/
+          cp -R prototype/assets/sprites/dragon-city _site/assets/sprites/
 
       - name: Upload game
         uses: actions/upload-pages-artifact@v5

@@ -1184,5 +1184,289 @@ try {
   Math.random = riftRandom;
 }
 
+// --- Город гномов: передвижение, Заслон, огонь, контрмеры шамана и босс ---
+const city = DWR.CONFIG.locations.dragonCity;
+const cityArena = city.rooms.at(-1);
+check("Город открывается после Разлома, за 14 боями идут арена Чёрного дракона и сокровищница",
+  city.unlockAfter === "rift" && city.rooms.length === 15 &&
+  city.rooms.slice(0, -1).every(index => DWR.CONFIG.rooms[index].enemies.length) &&
+  DWR.CONFIG.rooms[cityArena].boss && DWR.CONFIG.rooms[cityArena].enemies.join() === "black-dragon" &&
+  DWR.CONFIG.rooms[city.treasure].chest && !state.treasureAvailable("dragonCity"));
+
+function prepareCity(room) {
+  const run = prepareForge(city.rooms[room]);
+  for (const hero of Object.values(run.heroes)) hero.hp = hero.maxHp = 800;
+  run.heroes.priest.mana = run.heroes.priest.manaMax = 60;
+  return run;
+}
+
+function prepareDragonBattle() {
+  const run = S.createRun();
+  S.spawnRoom(run, cityArena);
+  run.autoSkills.clear();
+  for (const hero of Object.values(run.heroes)) {
+    hero.hp = hero.maxHp = 800;
+    hero.atkT = 1e6;
+  }
+  return run;
+}
+
+const cityRandom = Math.random;
+try {
+  Math.random = () => 0.49;
+  run = prepareCity(1);
+  const [guard, whelp] = run.enemies;
+  const { warrior, ranger } = run.heroes;
+  const guardSpec = guard.def.guard;
+  guard.guardT = 0;
+  guard.atkT = guardSpec.windup;
+  S.tick(run, 0);
+  stepFor(run, guardSpec.windup + 0.01);
+  check("Заслон поднимает отдельную броню и прекращает удары",
+    guard.armor === guard.maxArmor && guard.armor === guardSpec.armor && !guard.attack);
+
+  ranger.atkT = 0;
+  S.tick(run, 0);
+  run.equipped.add("fireball");
+  check("Лучник стреляет в щит, жрица перенаправляет ручной фаербол в щит",
+    run.attacks.some(shot => shot.caster === ranger && shot.target === guard) &&
+    S.useTargeted(run, "fireball", whelp.uid) &&
+    run.attacks.some(shot => shot.kind === "fire" && shot.target === guard));
+  ranger.atkT = 1e6;
+  stepFor(run, 1);
+  run.equipped.add("powerStrike");
+  const hp = guard.hp;
+  strikeFor(run, whelp, guard.armor);
+  stepFor(run, 1);
+  check("Заслон сбит, здоровье и прикрытый противник целы, ярость Крага не применяется",
+    guard.armor === 0 && guard.hp === hp && whelp.hp === whelp.maxHp && !guard.effects.has("kragRage"));
+
+  guard.atkT = 0;
+  S.tick(run, 0);
+  check("Молот оглушает при броске ниже 50%", warrior.effects.has("stunned"));
+  warrior.effects.delete("stunned");
+  guard.attack = null;
+  guard.atkT = 0;
+  Math.random = () => 0.50;
+  S.tick(run, 0);
+  check("При броске ровно 50% удар молота не оглушает", !warrior.effects.has("stunned"));
+
+  run = prepareCity(1);
+  const [rearGuard, frontWhelp] = run.enemies;
+  const tank = run.heroes.warrior;
+  rearGuard.x = tank.x - 100;
+  rearGuard.armor = rearGuard.maxArmor;
+  rearGuard.facing = 1;
+  rearGuard.flanking = true;
+  frontWhelp.x = tank.x + 100;
+  tank.atkT = 0;
+  stepFor(run, 0.025);
+  check("Воин не разворачивается на щит в тылу при наличии цели впереди",
+    tank.facing === 1 && run.attacks.some(shot => shot.caster === tank && shot.target === frontWhelp));
+  const wasFacingSupport = rearGuard.facing === -1;
+  run.heroes.ranger.atkT = 0;
+  S.tick(run, 0);
+  check("Лучник перенаправляет огонь в тыловой заслон",
+    run.attacks.some(shot => shot.caster === run.heroes.ranger && shot.target === rearGuard));
+  run.equipped.add("taunt");
+  tank.rage = skills.taunt.cost;
+  S.useInstant(run, "taunt");
+  S.tick(run, 0);
+  check("Провокация разворачивает тылового щитоносца к воину даже с поднятым щитом",
+    wasFacingSupport && rearGuard.taunted && rearGuard.facing === 1 && tank.facing === 1);
+
+  function fireWhelp(random) {
+    Math.random = () => random;
+    const run = prepareCity(0);
+    const dragon = run.enemies[0];
+    dragon.x = run.heroes.warrior.x + dragon.def.stopRange + 90;
+    const initialX = dragon.x;
+    stepFor(run, 0.2);
+    check("Дракончик смещается к дальности атаки, оставаясь в воздухе",
+      dragon.x < initialX && dragon.walking && S.airLift(dragon) > 0);
+    dragon.x = run.heroes.warrior.x + 300;
+    dragon.walking = false;
+    dragon.atkT = 0;
+    S.tick(run, 0);
+    const shot = run.attacks.find(attack => attack.kind === "cityFireball");
+    stepFor(run, dragon.def.attack.flight + 0.01);
+    return shot;
+  }
+  const incendiary = fireWhelp(0.29);
+  check("Фаербол стартует в воздухе и поджигает при броске ниже 30%",
+    incendiary.origin.y < -S.airLift(incendiary.caster) && incendiary.origin.x < incendiary.caster.x &&
+    incendiary.target.effects.has("whelpBurn"));
+  check("Фаербол не поджигает при броске ровно 30%", !fireWhelp(0.30).target.effects.has("whelpBurn"));
+
+  function shamansRun() {
+    const run = prepareCity(4);
+    const shaman = run.enemies.find(e => e.kind === "drakonid-shaman");
+    shaman.x = run.heroes.warrior.x + 280;
+    shaman.buffT = 0;
+    shaman.atkT = shaman.def.buff.windup;
+    S.tick(run, 0);
+    return { run, shaman };
+  }
+  let ritual = shamansRun();
+  run = ritual.run;
+  stepFor(run, ritual.shaman.def.buff.windup + 0.01);
+  const specification = DWR.CONFIG.effects.bloodlust;
+  check("Жажда крови на 10 секунд усиливает шамана и всех живых союзников в 2,5 раза",
+    specification.damageMultiplier === 2.5 && specification.attackSpeedMultiplier === 2.5 &&
+    run.enemies.every(enemy => near(enemy.effects.get("bloodlust")?.left, 10)));
+  run.equipped.add("dispel");
+  S.useDispel(run, run.enemies[0].uid);
+  stepFor(run, skills.dispel.castTime + 0.01);
+  check("Рассеивание снимает усиление только с выбранного врага",
+    !run.enemies[0].effects.has("bloodlust") && ritual.shaman.effects.has("bloodlust"));
+  stepFor(run, 10);
+  check("Жажда крови заканчивается у всех получателей", run.enemies.every(enemy => !enemy.effects.has("bloodlust")));
+
+  ritual = shamansRun();
+  run = ritual.run;
+  run.noiseBombsLeft = 1;
+  S.useGround(run, "noiseBomb", ritual.shaman.x);
+  stepFor(run, ritual.shaman.def.buff.windup + 0.01);
+  check("Шумовая бомба срывает Жажду крови до выпуска",
+    run.fx.some(f => f.type === "castInterrupted" && f.unit === ritual.shaman) &&
+    run.enemies.every(enemy => !enemy.effects.has("bloodlust")));
+
+  ritual = shamansRun();
+  run = ritual.run;
+  run.equipped.add("dispel");
+  const dispelled = S.useDispel(run, ritual.shaman.uid);
+  stepFor(run, ritual.shaman.def.buff.windup + 0.01);
+  check("Рассеивание может сорвать подготовку Жажды крови",
+    dispelled && !ritual.shaman.attack && run.enemies.every(enemy => !enemy.effects.has("bloodlust")));
+
+  run = prepareCity(3);
+  const shaman = run.enemies[1];
+  shaman.x = run.heroes.warrior.x + 250;
+  shaman.tornadoT = 0;
+  shaman.atkT = 0;
+  S.tick(run, 0);
+  const tornado = run.tornadoes[0];
+  const startingHp = run.heroes.warrior.hp;
+  stepFor(run, 1.6);
+  check("Вихрь вылетает из посоха и поражает героев на пути по одному разу",
+    tornado?.launch.x < tornado.origin && tornado?.launch.y < 0 && tornado.hit.size === 3 &&
+    near(startingHp - run.heroes.warrior.hp, Math.round(tornado.damage)));
+
+  run = prepareDragonBattle();
+  const [dragon] = run.enemies;
+  const { warrior: dragonTank, ranger: archer, priest } = run.heroes;
+  const { paw, breath, summon } = dragon.def.dragon;
+  dragon.summonT = Infinity;
+  const spawnX = DWR.CONFIG.canvas.w * dragon.def.city.spawnX;
+  stepFor(run, 1.2);
+  check("Чёрный дракон увеличен на 25%, стоит лицом влево и начинает с удара лапой",
+    dragon.def.sizeMul === 1.7 * 1.25 && dragon.x === spawnX &&
+    dragon.facing === -1 && !dragon.walking && !dragon.bypass &&
+    dragon.attack?.dragonMove === "paw" && !dragon.attack.hit && dragonTank.hp === 800);
+  stepFor(run, paw.windup - 0.01);
+  const pawWindup = dragonTank.hp === 800 && !dragon.attack.hit;
+  stepFor(run, 0.01);
+  check("Лапа наносит урон воину в момент контакта",
+    pawWindup && dragon.attack.hit && near(dragon.attack.t, paw.windup) && dragonTank.hp < 800 &&
+    archer.hp === 800 && priest.hp === 800 && run.fx.some(f => f.type === "meleeImpact" && f.kind === "claw"));
+
+  priest.x = 0;
+  stepFor(run, dragon.interval);
+  const hpAfterPaw = dragonTank.hp;
+  stepFor(run, breath.windup - 0.01);
+  const breathWindup = dragon.attack?.dragonMove === "breath" && S.specialAttackKey(dragon) === "dragonBreath" &&
+    !dragon.attack.hit && dragonTank.hp === hpAfterPaw && archer.hp === 800;
+  stepFor(run, 0.01);
+  const breathRelease = dragon.attack.hit && near(dragon.attack.t, breath.windup) && archer.hp === 800;
+  stepFor(run, breath.expand);
+  const hpAfterBreath = [dragonTank.hp, archer.hp];
+  check("Дыхание выпускается после каста и достаёт до героев по мере роста струи",
+    breathWindup && breathRelease && dragonTank.hp < hpAfterPaw && archer.hp < 800 && priest.hp === 800);
+  priest.x = archer.x;
+  stepFor(run, breath.active - breath.expand);
+  check("Активное дыхание поражает вошедшего в огонь героя, каждый получает урон один раз",
+    dragonTank.hp === hpAfterBreath[0] && archer.hp === hpAfterBreath[1] && priest.hp < 800);
+
+  const hpBeforeMiss = dragonTank.hp;
+  stepFor(run, dragon.interval - breath.active);
+  dragonTank.x = dragon.x - paw.reach - 35;
+  S.applyStatus(dragonTank, "stunned", paw.windup + 0.01);
+  stepFor(run, paw.windup);
+  check("Удар лапой промахивается, если воин вышел из зоны контакта", dragon.attack.hit && dragonTank.hp === hpBeforeMiss);
+
+  stepFor(run, dragon.interval + breath.windup + 0.10);
+  const breathing = dragon.attack?.dragonMove === "breath" && dragon.attack.hit;
+  run.equipped.add("powerStrike");
+  const finishingStrike = strikeFor(run, dragon, dragon.hp + 1);
+  stepFor(run, 0.8);
+  check("Гибель Чёрного дракона прекращает дыхание и выдаёт одно событие победы над боссом",
+    breathing && finishingStrike && !dragon.alive && !dragon.attack && !S.inBattle(run) &&
+    run.events.filter(event => event.type === "kill" && event.boss && event.unit === dragon).length === 1);
+
+  run = prepareDragonBattle();
+  const [summoner] = run.enemies;
+  const { warrior: summonTank, ranger: summonArcher } = run.heroes;
+  const { w: arenaWidth } = DWR.CONFIG.canvas;
+  stepFor(run, summon.initial - 0.025);
+  const beforeSummon = summoner.attack?.dragonMove !== "summon";
+  stepFor(run, 0.025);
+  const summonCast = S.specialAttackKey(summoner) === "dragonSummon" && !summoner.attack.hit;
+  stepFor(run, summon.windup - 0.025);
+  const beforeRelease = run.enemies.length === 1;
+  stepFor(run, 0.025);
+  const firstWave = run.enemies.slice(1);
+  const [leftWhelp, rightWhelp, secondLeftWhelp] = firstWave;
+  check("Через восемь секунд дракон начинает каст и призывает ровно троих за краями поля",
+    beforeSummon && summonCast && beforeRelease && firstWave.length === 3 &&
+    firstWave.every(whelp => whelp.kind === summon.minion && whelp.summonedBy === summoner.uid && whelp.noLoot &&
+      whelp.walking && !whelp.attack && !S.targetable(whelp)) &&
+    leftWhelp.x < 0 && leftWhelp.facing === 1 && secondLeftWhelp.x < 0 && secondLeftWhelp.facing === 1 &&
+    rightWhelp.x > arenaWidth && rightWhelp.facing === -1 &&
+    run.fx.some(fx => fx.type === "sound" && fx.cue === "summon"));
+  stepFor(run, 1.85);
+  check("Дракончики влетают на поле, тыловой наводится на лучника, дракон продолжает чередовать атаки",
+    firstWave.every(whelp => whelp.x > 0 && whelp.x < arenaWidth && S.targetable(whelp)) &&
+    leftWhelp.attack?.lockedTarget === summonArcher && !leftWhelp.attack.hit &&
+    summoner.attack?.dragonMove === "paw");
+
+  leftWhelp.atkT = 0;
+  secondLeftWhelp.atkT = secondLeftWhelp.def.attack.windup;
+  S.tick(run, 0);
+  const releasedShot = run.attacks.find(attack => attack.caster === leftWhelp);
+  const castingBeforeTaunt = secondLeftWhelp.attack?.lockedTarget === summonArcher && !secondLeftWhelp.attack.hit;
+  run.equipped.add("taunt");
+  summonTank.rage = S.skillStatus(run, "taunt").cost;
+  const taunted = S.useInstant(run, "taunt");
+  stepFor(run, secondLeftWhelp.def.attack.windup);
+  const retargetedShot = run.attacks.find(attack => attack.caster === secondLeftWhelp);
+  check("Провокация меняет цель незавершённого замаха тылового дракончика на воина",
+    castingBeforeTaunt && taunted && rightWhelp.taunted && !secondLeftWhelp.taunted &&
+    retargetedShot?.target === summonTank && !secondLeftWhelp.bypass);
+  check("Выпущенный до провокации фаербол сохраняет исходную цель",
+    releasedShot?.target === summonArcher && summonArcher.hp < summonArcher.maxHp);
+
+  stepFor(run, summoner.summonT - 0.025);
+  const noEarlyWave = run.enemies.length === 4;
+  for (let elapsed = 0; elapsed < 4 && run.enemies.length === 4; elapsed += 0.025) S.tick(run, 0.025);
+  const secondWave = run.enemies.slice(4);
+  check("Повторный призыв меняет сторону двух дракончиков, прежняя провокация на них не действует",
+    noEarlyWave && secondWave.length === 3 && secondWave.every(whelp => whelp.noLoot && !whelp.taunted) &&
+    secondWave[0].x > arenaWidth && secondWave[1].x < 0 && secondWave[2].x > arenaWidth);
+  for (let elapsed = 0; elapsed < 5 && !secondWave[0]?.attack; elapsed += 0.025) S.tick(run, 0.025);
+  check("Дракончик с правого края приближается и наводится на переднего героя",
+    secondWave[0]?.attack?.lockedTarget === summonTank);
+
+  summoner.summonT = 0;
+  for (let elapsed = 0; elapsed < 3 && summoner.summonT <= 0; elapsed += 0.025) S.tick(run, 0.025);
+  const wasSummoning = summoner.attack?.dragonMove === "summon" && !summoner.attack.hit;
+  run.equipped.add("powerStrike");
+  const cancelSummon = strikeFor(run, summoner, summoner.hp + 1);
+  stepFor(run, summon.windup + 0.1);
+  check("Гибель дракона срывает подготовку новой волны, ранее призванные продолжают бой",
+    wasSummoning && cancelSummon && !summoner.alive && !summoner.attack && S.inBattle(run) && run.enemies.length === 7);
+} finally {
+  Math.random = cityRandom;
+}
+
 console.log(failures === 0 ? "\nВСЕ ПРОВЕРКИ ПРОЙДЕНЫ" : "\nПРОВАЛОВ: " + failures);
 process.exit(failures === 0 ? 0 : 1);

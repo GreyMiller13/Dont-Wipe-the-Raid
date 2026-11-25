@@ -332,7 +332,8 @@ DWR.Screens = (function () {
     necroticOrb: "Шар некротической энергии", necroticBeam: "Некротический луч",
     firebolt: "Огненный болт", bite: "Укус", claw: "Удар когтями", clawWave: "Волна от удара когтями",
     axe: "Удар топором", smash: "Удар по земле", hammer: "Удар молотом", stunStrike: "Оглушающий удар молотом",
-    riftBoulder: "Бросок валуна", riftFireball: "Огненный шар элементаля"
+    riftBoulder: "Бросок валуна", riftFireball: "Огненный шар элементаля",
+    dragonPaw: "Удар лапой", dragonBreath: "Огненное дыхание"
   };
   const skillName = id => DWR.CONFIG.skills[id]?.name ?? heroAttacks[id] ?? id;
   const combatNumber = value => combatNumbers.format(value);
@@ -438,7 +439,7 @@ DWR.Screens = (function () {
   function renderResults(result) {
     const el = document.getElementById("screen-results");
     if (!el) return;
-    const titles = { win: "Победа!", wipe: "Отряд пал…", retreat: "Отступление" };
+    const titles = { win: "Победа!", wipe: "Отряд пал…", retreat: "Отступление", explored: "Отряд дошёл до зала награды" };
     const reason = result?.reason || "retreat";
     const title = result?.treasureOnly && reason === "win" ? "Награда получена" : titles[result?.reason] || "Забег завершён";
     const { coins = 0, runes = 0, roomsCleared = 0, roomsTotal = 0, roomId = 1, location = "dungeon",

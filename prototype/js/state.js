@@ -48,6 +48,7 @@ DWR.State = (function () {
       wildsDone: false,
       forgeDone: false,
       riftDone: false,
+      dragonCityDone: false,
       bestiary: {},            // { id локации: виды встреченных противников }
       treasuresOpened: {},     // { id локации: открыт ли сундук за первое убийство }
       raidStats: { seconds: 0, coins: 0, runes: 0, starts: 0, win: 0, retreat: 0, wipe: 0,

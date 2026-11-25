@@ -45,6 +45,11 @@ DWR.Run = (function () {
     frost: ["Заморозка", "#bceaff", null],
     orcWarCry: ["Боевой клич", "#ffa55c", "M3 10h4l5-5v14l-5-5H3zm13-2q4 4 0 8m3-11q7 7 0 14"],
     orcGuard: ["Поднять щит", "#a8cce7", "M12 3l8 3v6q0 6-8 9-8-3-8-9V6zM12 7v9m-3-5h6"],
+    cityGuard: ["Заслон щитом", "#a8cce7", "M12 3l8 3v6q0 6-8 9-8-3-8-9V6zM12 7v9m-3-5h6"],
+    cityTornado: ["Огненный вихрь", "#ffae62", "M3 5c0 5 18 5 18 0M6 11c0 5 12 5 12 0M9 17c0 4 6 4 6 0"],
+    dragonBreath: ["Огненное дыхание", "#ffae62", "M20 11l-5 2-4-4-4 1-3-4m15 8-6 2-7-2-3 2m15 0-4 4H9"],
+    dragonSummon: ["Призыв дракончиков", "#ffd092", "M3 7l4-2 5 4 5-4 4 2M4 13l4-2 4 4 4-4 4 2M6 19l3-2 3 3 3-3 3 2"],
+    bloodlust: ["Жажда крови", "#fb7969", "M12 3c0 4 7 10 7 14a7 7 0 0 1-14 0c0-4 7-10 7-14zM8 17q0 3 3 4"],
     hammerStun: ["Оглушающий удар", "#ffcf7b", "M4 8l4-5 7 5-4 5zM13 11l7 8-2 2-7-8M3 16l3-1m1 5 2-2"],
     furnace: ["Выброс горна", "#ff9860", "M12 3c3 4 1 6 5 7l2-3c2 4 4 8 0 12-4 4-12 2-14-2-2-4 0-7 3-10 0 3 2 4 3 2 1-2 0-4 1-6z"],
     dispel: ["Рассеивание", "#a8f2f0", "M3 17 19 3m-4 0h4v4M5 7l2 3m10 4 3 2M8 19l1 2"],
@@ -64,7 +69,8 @@ DWR.Run = (function () {
     orcExposed: new Path2D("M5 5l6-2-1 6 3 2-3 4 2 6c-5-2-8-6-8-10zm9-2 6 2v6c0 4-2 7-5 9l-1-5 3-4-4-3z"),
     bleeding: new Path2D("M12 3c0 4 7 10 7 14a7 7 0 0 1-14 0c0-4 7-10 7-14zM8 17q0 3 3 4"),
     healBarrier: new Path2D("M12 3l8 3v5q0 7-8 10-8-3-8-10V6zM12 7v8m-4-4h8"),
-    burning: CAST_ART.furnace[2], ember: CAST_ART.furnace[2], kragRage: CAST_ART.hammerStun[2],
+    burning: CAST_ART.furnace[2], ember: CAST_ART.furnace[2], whelpBurn: CAST_ART.furnace[2],
+    bloodlust: CAST_ART.bloodlust[2], kragRage: CAST_ART.hammerStun[2],
     riftBurn: CAST_ART.furnace[2], riftCloakBurn: CAST_ART.furnace[2],
     riftStone: CAST_ART.riftPetrify[2], riftImpaled: CAST_ART.riftSpike[2], riftCloak: CAST_ART.riftCloak[2],
     sacrifice: new Path2D("M12 3l8 3v6q0 6-8 9-8-3-8-9V6zm0 13-4-4q-3-4 1-4 2 0 3 2 1-2 3-2 4 0 1 4z")
@@ -82,7 +88,7 @@ DWR.Run = (function () {
     fireImpact: "fireImpact", necroticImpact: "necroticImpact", necroticBeam: "beam", groundSmash: "smash",
     howl: "howl", freeze: "freeze", thaw: "thaw", summon: "summon", raise: "summon", dispel: "dispel",
     massHeal: "massHeal", bombImpact: "bombImpact", noiseBombImpact: "noiseBombImpact",
-    furnaceInterrupt: "guard"
+    furnaceInterrupt: "guard", shieldBroken: "armorBreak"
   };
   const STATUS_SOUNDS = { orcWarCry: "warCry", orcGuard: "guard", kragRage: "armorBreak", sacrifice: "sacrifice" };
   let R = null;                      // состояние текущего забега
@@ -102,7 +108,7 @@ DWR.Run = (function () {
       sim,
       location, treasureOnly, seq: roomSeq(location, treasureOnly), roomIdx: 0,
       phase: "fadein", phaseT: 0,          // fadein | room | fadeout | wipeDelay
-      items: [], floaters: [], auras: [], explosions: [], beams: [], meleeImpacts: [], deaths: new Map(), bossLoot: new Set(),
+      items: [], floaters: [], auras: [], explosions: [], beams: [], meleeImpacts: [], deaths: new Map(), landingLoot: new Set(),
       runCoins: 0, runRunes: 0, coinBonusCarry: 0, tempPanel,
       chestOpened: false, chestRect: { x: 532, y: FLOOR - 132, w: 170, h: 132 },
       menu: null,                           // null | {confirm:false} — открытое бургер-меню (пауза)
@@ -114,6 +120,9 @@ DWR.Run = (function () {
   }
 
   function curRoom() { return DWR.CONFIG.rooms[R.seq[R.roomIdx]]; }
+  function chestLocked() {
+    return curRoom().chest && !R.chestOpened && !DWR.State.treasureAvailable(R.location);
+  }
   function locationLoot() { return DWR.CONFIG.locations[R.location].loot; }
   function hasFrozenHero() {
     return R.sim.heroOrder.some(id => {
@@ -130,6 +139,11 @@ DWR.Run = (function () {
 
   function hasFallingBoss() {
     return R.sim.enemies.some(unit => unit.boss && !unit.alive && deathProgress(unit) < 1);
+  }
+
+  const isCityCorpse = unit => !unit.alive && Boolean(unit.def?.city);
+  function hasFallingCityEnemy() {
+    return R.sim.enemies.some(unit => isCityCorpse(unit) && deathProgress(unit) < 1);
   }
 
   function hasEscapingBoss() {
@@ -151,9 +165,11 @@ DWR.Run = (function () {
   function canAdvance() {
     return R.phase === "room" && !DWR.Sim.inBattle(R.sim) && !R.sim.over && !R.sim.groundWaves.length &&
       !(R.sim.heroes.warrior.alive && R.sim.heroes.warrior.returnToFormation) &&
-      !hasExitHazard() && !hasFallingBoss() && !hasEscapingBoss() && !priestCasting() && !R.sim.bombThrows.length &&
+      !hasExitHazard() && !hasFallingBoss() && !hasFallingCityEnemy() && !hasEscapingBoss() && !priestCasting() &&
+      !R.sim.bombThrows.length &&
       !R.sim.attacks.some(attack => attack.target.id && (attack.target.alive || attack.kind === "riftFireball") && !attack.resolved) &&
-      (!curRoom().chest || R.chestOpened);
+      !R.sim.tornadoes.some(tornado => !tornado.caster.id) &&
+      (!curRoom().chest || R.chestOpened || chestLocked());
   }
 
   function nextTargetAt(x, y) {
@@ -169,7 +185,7 @@ DWR.Run = (function () {
     R.roomIdx = i;
     R.phase = "fadein"; R.phaseT = 0; R.items = []; R.explosions = [];
     R.deaths.clear();
-    R.bossLoot.clear();
+    R.landingLoot.clear();
     R.flash.clear();
     R.floaters = []; R.auras = []; R.beams = []; R.meleeImpacts = [];
     R.potionHover = null;
@@ -188,7 +204,7 @@ DWR.Run = (function () {
   // --- Завершение забега ---
   function finalize(reason) {
     if (reason === "win" && !R.treasureOnly) R.runCoins += R.sim.stats.raidVictoryCoins;
-    DWR.State.finishRaid(reason, R.runCoins);
+    DWR.State.finishRaid(reason === "explored" ? null : reason, R.runCoins);
     const currentCleared = curRoom().chest ? R.chestOpened : !DWR.Sim.inBattle(R.sim) && !hasEscapingBoss();
     DWR.showResults({
       reason, coins: R.runCoins, runes: R.runRunes,
@@ -270,7 +286,7 @@ DWR.Run = (function () {
       R.phaseT += dt;
       if (R.phaseT >= DWR.CONFIG.fadeSec) {
         R.phase = "room";
-        if (curRoom().boss) DWR.State.reachRaidBoss();
+        if (curRoom().boss && DWR.Sim.inBattle(R.sim)) DWR.State.reachRaidBoss();
         recordEncounters();
       }
       return;
@@ -283,7 +299,10 @@ DWR.Run = (function () {
     if (R.phase === "fadeout") {
       R.phaseT += dt;
       if (R.phaseT >= DWR.CONFIG.fadeSec) {
-        if (R.roomIdx + 1 >= R.seq.length) { finalize("win"); return; }
+        if (R.roomIdx + 1 >= R.seq.length) {
+          finalize(DWR.State.locationCleared(R.location) ? "win" : "explored");
+          return;
+        }
         loadRoom(R.roomIdx + 1);
       }
       return;
@@ -308,11 +327,15 @@ DWR.Run = (function () {
     // события симуляции → дроп и визуал
     for (const ev of sim.events) {
       if (ev.type === "kill") {
-        R.deaths.set(ev.unit, R.time);
-        if (ev.boss && (ev.unit.def.death ?? ev.unit.def.fall)?.land != null) R.bossLoot.add(ev.unit);
+        const { unit } = ev;
+        R.deaths.set(unit, R.time);
+        const land = (unit.def.death ?? unit.def.fall)?.land;
+        // У наземных драконидов добыча появляется после контакта с полом и не заслоняет падение.
+        const groundCityEnemy = unit.def.city && !DWR.Sim.airLift(unit);
+        if (land != null && (ev.boss || groundCityEnemy)) R.landingLoot.add(unit);
         else {
-          if (!ev.unit.noLoot) dropLoot(ev.unit);
-          DWR.Audio.play("down", ev.unit.x);
+          if (!unit.noLoot) dropLoot(unit);
+          DWR.Audio.play("down", unit.x);
         }
         if (ev.boss) DWR.State.completeLocation(R.location);
       }
@@ -328,11 +351,11 @@ DWR.Run = (function () {
       }
     }
     sim.events.length = 0;
-    for (const boss of R.bossLoot) {
-      if (deathProgress(boss) < (boss.def.death ?? boss.def.fall).land) continue;
-      R.bossLoot.delete(boss);
-      dropLoot(boss);
-      DWR.Audio.play("down", boss.x);
+    for (const unit of R.landingLoot) {
+      if (deathProgress(unit) < (unit.def.death ?? unit.def.fall).land) continue;
+      R.landingLoot.delete(unit);
+      if (!unit.noLoot) dropLoot(unit);
+      DWR.Audio.play("down", unit.x);
     }
 
     // Визуальные эффекты удара возникают только после расчёта попадания.
@@ -371,6 +394,7 @@ DWR.Run = (function () {
         floater(f.unit.x, FLOOR - f.unit.h - 16, f.unit.flanking ? "Поднят в тылу" : "Скелет поднят", "#c8a4ff");
       }
       else if (f.type === "furnaceInterrupt") floater(f.unit.x, FLOOR - f.unit.h * 0.42, "Выброс прерван", "#ffd092");
+      else if (f.type === "shieldBroken") floater(f.unit.x, FLOOR - f.unit.h * 0.65, "Заслон разбит", "#a8cce7");
       else if (f.type === "castInterrupted") floater(f.unit.x, FLOOR - f.unit.h * 0.65, "Каст прерван", "#d4f8ff");
       else if (f.type === "taunt") floater(f.unit.x, FLOOR - f.unit.h - 22, "Провокация", "#ffd092");
       else if (f.type === "absorb") floater(f.unit.x, FLOOR - f.unit.h - 22,
@@ -383,7 +407,7 @@ DWR.Run = (function () {
         R.flash.set(f.unit, 0.18);
         const effect = DWR.CONFIG.effects[f.kind === "frost" ? "frozen" : f.kind];
         const amount = Number.isInteger(f.amount) ? f.amount : f.amount.toLocaleString("ru-RU", { maximumFractionDigits: 2 });
-        floater(f.unit.x, FLOOR - f.unit.h - 8, (f.critical ? "Крит " : "") + "−" + amount,
+        floater(f.unit.x, FLOOR - f.unit.h - 8 - DWR.Sim.airLift(f.unit), (f.critical ? "Крит " : "") + "−" + amount,
           effect?.color ?? (f.kind === "armor" ? "#a8cce7" : f.critical ? "#ffd092" : "#e88"));
       }
       else if (f.type === "heal") {
@@ -467,13 +491,28 @@ DWR.Run = (function () {
         ? R.sim.enemies.find(e => DWR.Sim.canDispelEnemy(e) && isUnitTarget(p, e)) ?? null
         : null;
     }
-    return p ? R.sim.enemies.find(e => DWR.Sim.targetable(e) && isUnitTarget(p, e) &&
-      (R.aim?.id !== "powerStrike" || DWR.Sim.canWarriorTarget(R.sim, e))) || null : null;
+    if (!p) return null;
+    const warriorSkill = R.aim?.id === "powerStrike";
+    const allowed = enemy => !warriorSkill || DWR.Sim.canWarriorTarget(R.sim, enemy);
+    const underCursor = e => DWR.Sim.targetable(e) && isUnitTarget(p, e) && allowed(e);
+    let target = R.sim.enemies.find(underCursor);
+    if (target?.def.dragon) {
+      // Летящего перед боссом дракончика можно выбрать поверх его широкой области.
+      target = R.sim.enemies.find(e => !e.def.dragon && underCursor(e)) ?? target;
+    }
+    const owner = DWR.CONFIG.skills[R.aim?.id]?.owner;
+    if (!target || !owner) return target ?? null;
+    const redirected = DWR.Sim.redirectHeroAttack(R.sim, R.sim.heroes[owner], target);
+    return allowed(redirected) ? redirected : null;
   }
 
   function isUnitTarget(p, unit) {
-    const ground = FLOOR + DWR.Sim.bypassFloorOffset(unit) - DWR.Sim.spikeElevation(unit).lift;
-    const halfWidth = unit.def?.rift ? Math.max(55, unit.h * 0.37) : 55;
+    const ground = FLOOR + DWR.Sim.bypassFloorOffset(unit) - DWR.Sim.spikeElevation(unit).lift - DWR.Sim.airLift(unit);
+    if (unit.def?.dragon) {
+      return p.x > unit.x - unit.h * 0.63 && p.x < unit.x + unit.h * 1.22 &&
+        p.y > ground - unit.h - 10 && p.y < ground + 10;
+    }
+    const halfWidth = unit.def?.rift || unit.def?.city ? Math.max(55, unit.h * 0.37) : 55;
     const height = unit.effects.has("riftStone") ? unit.h * 0.72 : unit.h;
     return Math.abs(p.x - unit.x) < halfWidth && p.y > ground - height - 10 && p.y < ground + 10;
   }
@@ -604,6 +643,7 @@ DWR.Run = (function () {
     updateCursor(DWR.Input.x, DWR.Input.y);
   }
   function openChest() {
+    if (chestLocked()) { toast("Сундук откроется после победы над боссом"); return; }
     if (R.chestOpened || !DWR.State.openTreasure(R.location)) return;
     R.chestOpened = true;
     R.runRunes++;
@@ -656,6 +696,9 @@ DWR.Run = (function () {
     }
     drawSacrifice(ctx);
     drawUnits(ctx);
+    for (const enemy of R.sim.enemies) {
+      if (enemy.def.dragon) DWR.CityMotion.drawDragonFire(ctx, DWR.Assets.img, enemy, FLOOR);
+    }
     for (const tornado of R.sim.tornadoes) drawFireTornado(ctx, tornado);
     drawCastBars(ctx);
     drawLoot(ctx);
@@ -675,14 +718,17 @@ DWR.Run = (function () {
     else {
       const battle = DWR.Sim.inBattle(R.sim);
       const warrior = R.sim.heroes.warrior;
-      const status = R.phase === "fadeout" ? "Переход между комнатами" : curRoom().chest ? "Откройте сундук"
+      const status = R.phase === "fadeout" ? "Переход между комнатами"
         : hasEscapingBoss() ? "Лич открывает портал"
         : R.sim.fusion?.delay > 0 || R.sim.enemies.some(enemy => enemy.rift?.motion?.name === "merge") ? "Слияние стихий"
         : !battle && hasFrozenHero() ? "Герой оттаивает"
         : !battle && hasExitHazard() ? "Эффекты ещё действуют"
         : !battle && priestCasting() ? "Жрица произносит заклинание"
         : !battle && hasFallingBoss() ? "Босс повержен"
-        : !battle && warrior.alive && warrior.returnToFormation ? "Отряд перестраивается" : "Бой в комнате";
+        : !battle && hasFallingCityEnemy() ? "Завершение боя"
+        : !battle && warrior.alive && warrior.returnToFormation ? "Отряд перестраивается"
+        : R.sim.tornadoes.some(tornado => !tornado.caster.id) && !battle ? "Огненный вихрь ещё действует"
+        : curRoom().chest ? (chestLocked() ? "Сундук заперт" : "Откройте сундук") : "Бой в комнате";
       text(ctx, status, 1221, 593, "14px", "#b0aaba", "right");
     }
     drawAimHint(ctx);
@@ -726,7 +772,7 @@ DWR.Run = (function () {
       ctx.font = "15px Segoe UI";
       ctx.textAlign = "center";
       ctx.fillStyle = "#ffd092";
-      ctx.fillText("Открыть сундук", x, r.y + 11);
+      ctx.fillText(chestLocked() ? "Сундук заперт" : "Открыть сундук", x, r.y + 11);
     }
   }
 
@@ -771,11 +817,13 @@ DWR.Run = (function () {
     ctx.beginPath(); ctx.ellipse(x, FLOOR + 6, w, 10, 0, 0, 7); ctx.fill();
   }
 
+  const showsBossName = e => e.boss && (e.def.spritePoses || e.def.motion || e.def.rift || e.def.dragon);
+
   function drawUnits(ctx) {
     const sim = R.sim;
     const floorOffset = DWR.Sim.bypassFloorOffset;
     const units = [...sim.enemies, ...sim.heroOrder.map(id => sim.heroes[id])];
-    units.sort((a, b) => floorOffset(a) - floorOffset(b));
+    units.sort((a, b) => floorOffset(a) - floorOffset(b) || Number(isCityCorpse(b)) - Number(isCityCorpse(a)));
     for (const unit of units) {
       ctx.save();
       ctx.translate(0, floorOffset(unit));
@@ -793,26 +841,31 @@ DWR.Run = (function () {
     }
     const p = e.rift ? riftPose(e) : unitPose(e);
     const visible = DWR.Sim.targetable(e);
-    if (visible) shadow(ctx, e.x, e.h * 0.22);
+    const airLift = DWR.Sim.airLift(e);
+    if (e.def.dragon) {
+      const landed = p.pose === "dead" && p.poseT >= e.def.fall.land;
+      shadow(ctx, e.x + e.h * (landed ? 0.17 : 0.30), e.h * (landed ? 0.68 : 0.53));
+    } else if (visible || isCityCorpse(e)) shadow(ctx, e.x, e.h * 0.22);
     const drawUnit = R.hoverTarget === e ? DWR.Chars.drawOutlined : DWR.Chars.draw;
     const attack = e.ritual ? { ritual: true, t: e.ritual.t, windup: e.ritual.duration } : e.attack;
     ctx.save();
     if (e.appearT > 0) ctx.globalAlpha = 1 - e.appearT / 0.4;
     const cloak = e.effects.get("riftCloak");
-    drawUnit(ctx, { kind: e.kind, x: e.x, y: FLOOR, h: e.h, facing: e.facing, attack, ...p, externalEffects: true,
+    drawUnit(ctx, { kind: e.kind, x: e.x, y: FLOOR - airLift, airLift, h: e.h, facing: e.facing, attack, ...p, externalEffects: true,
+      shieldRaised: e.def.guard?.armor && e.armor > 0, shieldLowering: e.shieldLowerT > 0,
       cloakT: cloak && e.alive ? (cloak.duration - cloak.left) / DWR.RiftMotion.clips.burning.duration : undefined,
       enraged: e.kind === "krag" && e.armor === 0, fallForward: e.x + e.h > CV().w,
       flash: (R.flash.get(e) || 0) / 0.18 }, R.time);
     ctx.restore();
     if (visible || p.pose === "burrow") {
-      const height = p.pose === "stone" ? e.h * 0.72 : DWR.ForgeMotion.howlGeometry(e).height;
-      const barY = FLOOR - height - (e.def.armor ? 20 : 12), width = e.def.armor ? 116 : 74;
+      const height = (p.pose === "stone" ? e.h * 0.72 : DWR.ForgeMotion.howlGeometry(e).height) + airLift;
+      const barY = FLOOR - height - (e.maxArmor ? 20 : 12), width = e.def.dragon ? 150 : e.maxArmor ? 116 : 74;
       ctx.save();
       // Во время перемещения сохраняем видимым остаток здоровья того же элементаля.
       if (!visible) ctx.globalAlpha *= 0.55;
       bar(ctx, e.x, barY, width, 8, e.hp / e.maxHp, e.taunted ? "#e1a05e" : "#b8563e");
-      if (e.armor > 0) bar(ctx, e.x, barY + 10, width, 6, e.armor / e.def.armor, "#a8cce7");
-      const showName = e.boss && (e.def.spritePoses || e.def.motion || e.def.rift);
+      if (e.armor > 0) bar(ctx, e.x, barY + 10, width, 6, e.armor / e.maxArmor, "#a8cce7");
+      const showName = showsBossName(e);
       if (showName) text(ctx, e.def.name, e.x, barY - 10, "600 18px", "#f6ddcf", "center");
       if (visible) drawStatusBadges(ctx, e, showName ? 23 : 0, height);
       ctx.restore();
@@ -844,7 +897,7 @@ DWR.Run = (function () {
       if (barrier) drawHealBarrier(ctx, h, barrier);
       const ice = h.effects.get("frozen");
       if (ice) drawIceBlock(ctx, h.x, h.h, Math.min(1, (ice.duration - ice.left) / ICE_GROW));
-      if (h.effects.has("burning") || h.effects.has("ember") || h.effects.has("riftBurn") ||
+      if (h.effects.has("burning") || h.effects.has("ember") || h.effects.has("whelpBurn") || h.effects.has("riftBurn") ||
           h.effects.has("riftCloakBurn")) drawBurning(ctx, h);
       ctx.restore();
       drawStatusBadges(ctx, h, spike.lift);
@@ -862,7 +915,7 @@ DWR.Run = (function () {
       const progress = Math.min(1, e.furnaceCast ? e.furnaceCast.elapsed / e.def.furnace.duration
         : e.ritual ? e.ritual.t / e.ritual.duration : attack.t / attack.windup);
       const x = Math.max(8, Math.min(e.x - total / 2, CV().w - total - 8));
-      const aboveName = e.boss && (e.def.spritePoses || e.def.motion || e.def.rift) ? 23 : 0;
+      const aboveName = showsBossName(e) ? 23 : 0;
       const height = DWR.ForgeMotion.howlGeometry(e).height;
       let y = Math.max(6, FLOOR - height - (e.effects.size ? 77 : 47) - aboveName);
       while (y > 6 && rows.some(row => Math.abs(row.y - y) < iconSize + 4 && Math.abs(row.x - x) < total + 4)) {
@@ -1404,6 +1457,7 @@ DWR.Run = (function () {
   }
 
   function projectileOrigin(attack) {
+    if (attack.origin) return attack.origin;
     const { caster, kind, facing } = attack;
     const source = { kind: caster.kind, h: caster.h, x: attack.startX, facing };
     if (kind === "riftFireball" || kind === "riftBoulder") {
@@ -1436,11 +1490,16 @@ DWR.Run = (function () {
     if (kind === "riftFireball" || kind === "riftBoulder") {
       DWR.RiftMotion.drawProjectile(ctx, { x, y, h: shot.caster.h, facing: Math.sign(dx) || shot.facing,
         progress: k, fire: kind === "riftFireball" });
-    } else if (kind === "fire") {
-      if (!drawFireFrame(ctx, "fireball-flight", k, x, y, 70, 18, angle)) {
+    } else if (kind === "fire" || kind === "cityFireball") {
+      const emerge = kind === "cityFireball" ? 0.52 + 0.48 * Math.min(1, (shot.t - shot.windup) / 0.08) : 1;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(emerge, emerge);
+      if (!drawFireFrame(ctx, "fireball-flight", k, 0, 0, 70, 18, angle)) {
         ctx.fillStyle = "#ff9b49";
-        ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(0, 0, 11, 0, Math.PI * 2); ctx.fill();
       }
+      ctx.restore();
     } else if (kind === "firebolt") {
       ctx.save();
       ctx.translate(x, y); ctx.rotate(angle);
@@ -1695,13 +1754,19 @@ DWR.Run = (function () {
   }
 
   function drawFireTornado(ctx, tornado) {
+    const { launch } = tornado;
+    const progress = launch ? Math.min(1, launch.elapsed / launch.duration) : 1;
+    const airborne = progress < 1;
+    const x = airborne ? launch.x + (launch.landingX - launch.x) * progress : tornado.x;
+    const y = airborne ? FLOOR + launch.y * (1 - progress ** 1.48) : FLOOR;
+    const scale = airborne ? 0.075 + 0.925 * progress ** 1.65 : 1;
     const edge = tornado.direction < 0 ? 0 : CV().w;
-    const growth = Math.min(1, Math.abs(tornado.x - tornado.origin) / 95);
-    const fade = Math.min(1, Math.abs(edge - tornado.x) / 95);
+    const growth = Math.min(1, Math.abs(x - (launch?.x ?? tornado.origin)) / 95);
+    const fade = Math.min(1, Math.abs(edge - x) / 95);
     const height = 244 + 70 * growth, time = R.time * (reducedMotion.matches ? 6 : 15);
     ctx.save();
-    ctx.translate(tornado.x, FLOOR);
-    ctx.scale(tornado.direction, 1);
+    ctx.translate(x, y);
+    ctx.scale(tornado.direction * scale, scale);
     ctx.globalAlpha = fade;
 
     const glow = ctx.createRadialGradient(0, 0, 5, 0, 0, 87);
@@ -1781,7 +1846,7 @@ DWR.Run = (function () {
       ctx.restore();
       return;
     }
-    const unit = effect.unit, x = unit.x, y = FLOOR - unit.h * 0.52;
+    const unit = effect.unit, x = unit.x, y = FLOOR - unit.h * 0.52 - DWR.Sim.airLift(unit);
     if (effect.spellEffect === "tornadoHit") {
       drawFireFrame(ctx, "fireball-impact", t, x, y, 45, 41);
       drawNecroticBurst(ctx, x, y, t, "#ff9d63");

@@ -8,7 +8,7 @@ DWR.Assets = (function () {
   // Версии загрузчика и графики независимы, чтобы обновление кода не сбрасывало кэш спрайтов.
   const versions = new URL(document.currentScript.src).searchParams;
   const version = versions.get("art"), heroVersion = versions.get("hero");
-  const menuVersion = versions.get("menu");
+  const menuVersion = versions.get("menu"), cityVersion = versions.get("city");
   // Ключи боевых спрайтов совпадают с kind юнита.
   const SPRITES = ["warrior", "priest", "priest-release", "ranger",
                    "warrior-body", "warrior-upper", "warrior-fore", "warrior-blade",
@@ -34,7 +34,8 @@ DWR.Assets = (function () {
     return im;
   }
   function assetUrl(src) {
-    const revision = src.startsWith("menu-") ? menuVersion ?? version
+    const revision = /^\.\.\/backgrounds\/dragon-city-\d{2}\.webp$/.test(src) ? cityVersion ?? version
+      : src.startsWith("menu-") ? menuVersion ?? version
       : /^(warrior|ranger|priest)-/.test(src) ? heroVersion ?? version : version;
     return DIR + src + (revision ? "?v=" + encodeURIComponent(revision) : "");
   }
@@ -60,9 +61,19 @@ DWR.Assets = (function () {
         for (const art of artIds(rooms)) {
           if (!img["room" + art]) img["room" + art] = loadOne(roomFile(art), group);
         }
-        for (const kind of new Set(rooms.flatMap(room => room.fusion ? [...room.enemies, room.fusion] : room.enemies))) {
+        const kinds = new Set(rooms.flatMap(room => room.fusion ? [...room.enemies, room.fusion] : room.enemies));
+        for (const kind of [...kinds]) {
+          const summon = config.enemies[kind].dragon?.summon;
+          if (summon) kinds.add(summon.minion);
+        }
+        for (const kind of kinds) {
           const enemy = config.enemies[kind];
           if (enemy.rift && !img[kind]) img[kind] = loadOne(DWR.RiftMotion.atlasFile(kind), group);
+          if (enemy.city) {
+            for (const id of DWR.CityMotion.files(kind)) {
+              if (!img[id]) img[id] = loadOne(DWR.CityMotion.file(id), group);
+            }
+          }
           preloadEnemyMotion(enemy, group);
           if (!enemy.spritePoses || img[kind]) continue;
           img[kind] = loadOne(kind + "-poses.png", group);
@@ -92,7 +103,7 @@ DWR.Assets = (function () {
     const enemies = new Set(rooms.flatMap(room => room.enemies));
     for (const [kind, enemy] of Object.entries(DWR.CONFIG.enemies)) {
       if (enemies.has(kind)) preloadEnemyMotion(enemy);
-      if (enemy.spritePoses || enemy.motion || enemy.rift) continue;
+      if (enemy.spritePoses || enemy.motion || enemy.rift || enemy.city) continue;
       img[kind] = loadOne(kind + ".png");
       enemyLayers[kind] = { body: loadOne(kind + "-body.png"), arm: loadOne(kind + "-arm.png") };
       if (!enemy.escape) falls[kind] = loadOne(kind + "-fall.png");

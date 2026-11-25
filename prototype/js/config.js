@@ -18,6 +18,7 @@ DWR.skillRankPrice = (node, rank) => {
   return node.prices?.[rank - 1] ?? Math.round(node.base * node.mul ** (rank - 1) * (1 + Math.max(0, rank - 2) * 0.10));
 };
 const forgeEnemy = stats => ({ ...stats, hp: stats.hp * 1.2, dmg: stats.dmg * 1.2 });
+const drakonidScale = 1.25;
 const riftEarth = {
   hp: 189, dmg: 22, interval: 2.72, sizeMul: 1.06, speed: 119, stopRange: 116, formationGap: 23,
   rift: { moves: ["boulder"], petrifyAt: 0.5, melee: { windup: 0.64, recovery: 0.45 } }
@@ -48,6 +49,9 @@ DWR.CONFIG = {
     rift: { name: "Разлом под горой", rooms: [39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50], treasure: 51,
       progress: "riftDone", unlockAfter: "forge", loadOnSelect: true, continueOnWin: true,
       loot: { normal: 9, boss: 125, chest: 145 } },
+    dragonCity: { name: "Город гномов", rooms: Array.from({ length: 15 }, (_, i) => 52 + i), treasure: 67,
+      progress: "dragonCityDone", unlockAfter: "rift", loadOnSelect: true,
+      loot: { normal: 10, boss: 150, chest: 170 } },
     demoPreview: { name: "Привал", rooms: [], unlockAfter: "rift", previewArt: "assets/backgrounds/demo-camp.webp" }
   },
   rooms: [
@@ -102,7 +106,23 @@ DWR.CONFIG = {
     { id: 49, art: "rift-stone-bridge", tier: 4, enemies: ["earth-elemental", "fire-elemental", "fire-elemental"] },
     { id: 50, art: "rift-bridge-exit", tier: 2, enemies: ["earth-elemental", "fire-elemental"] },
     { id: 51, art: "rift-boss-cavern", boss: true, enemies: ["earth-colossus", "fire-colossus"], fusion: "fused-colossus" },
-    { id: 52, art: "rift-treasury", chest: true, enemies: [] }
+    { id: 52, art: "rift-treasury", chest: true, enemies: [] },
+    { id: 53, art: "dragon-city-01", tier: 0, enemies: ["black-whelp", "black-whelp"] },
+    { id: 54, art: "dragon-city-02", tier: 0, enemies: ["drakonid-warrior", "black-whelp"] },
+    { id: 55, art: "dragon-city-03", tier: 1, enemies: ["drakonid-warrior", "black-whelp", "black-whelp"] },
+    { id: 56, art: "dragon-city-04", tier: 1, enemies: ["drakonid-warrior", "drakonid-shaman"] },
+    { id: 57, art: "dragon-city-05", tier: 1, enemies: ["drakonid-warrior", "black-whelp", "drakonid-shaman"] },
+    { id: 58, art: "dragon-city-06", tier: 2, enemies: ["drakonid-warrior", "drakonid-warrior", "black-whelp"] },
+    { id: 59, art: "dragon-city-07", tier: 2, enemies: ["drakonid-warrior", "black-whelp", "drakonid-shaman"] },
+    { id: 60, art: "dragon-city-08", tier: 2, enemies: ["black-whelp", "black-whelp", "drakonid-shaman"] },
+    { id: 61, art: "dragon-city-09", tier: 3, enemies: ["drakonid-warrior", "drakonid-warrior", "drakonid-shaman"] },
+    { id: 62, art: "dragon-city-10", tier: 3, enemies: ["drakonid-warrior", "black-whelp", "black-whelp", "drakonid-shaman"] },
+    { id: 63, art: "dragon-city-11", tier: 3, enemies: ["drakonid-warrior", "black-whelp", "drakonid-shaman"] },
+    { id: 64, art: "dragon-city-12", tier: 4, enemies: ["drakonid-warrior", "drakonid-warrior", "black-whelp", "drakonid-shaman"] },
+    { id: 65, art: "dragon-city-13", tier: 4, enemies: ["drakonid-warrior", "black-whelp", "drakonid-shaman", "black-whelp"] },
+    { id: 66, art: "dragon-city-14", tier: 5, enemies: ["drakonid-warrior", "drakonid-warrior", "black-whelp", "drakonid-shaman"] },
+    { id: 67, art: "dragon-city-arena", boss: true, enemies: ["black-dragon"] },
+    { id: 68, art: "dragon-city-treasury", chest: true, enemies: [] }
   ],
   enemyGrowthPerRoom: 0.15, // m = 1 + 0.15*(боевая комната - 1)
 
@@ -183,7 +203,33 @@ DWR.CONFIG = {
     "fire-colossus": riftBoss(riftFire, "Огненный колосс"),
     "fused-colossus": { name: "Колосс двух стихий", hp: 850, dmg: 41, interval: 2.40, sizeMul: 1.75,
       speed: 135, stopRange: 126, boss: true, fireDamageMultiplier: 0.5, fall: { duration: 2.05, land: 0.84 },
-      rift: { moves: ["spike", "cloak"], alternate: true, melee: { windup: 0.71, recovery: 0.50 } } }
+      rift: { moves: ["spike", "cloak"], alternate: true, melee: { windup: 0.71, recovery: 0.50 } } },
+    "black-whelp": { name: "Чёрный дракончик", hp: 104, dmg: 14, interval: 2.85, sizeMul: 0.76,
+      city: { anchor: [286, 412], artHeight: 365, release: [112, 278], lift: 140 },
+      ranged: true, speed: 165, stopRange: 370, fall: { duration: 1.06, land: 0.64 },
+      attack: { projectile: "cityFireball", windup: 0.67, recovery: 0.48, flight: 0.42, arc: 24,
+        burnChance: 0.30, aimRear: true } },
+    "drakonid-warrior": { name: "Драконид-воин", hp: 190, dmg: 19, interval: 2.7, sizeMul: 1.04 * drakonidScale,
+      city: { anchor: [391, 366], artHeight: 340, meleePadding: 72 }, speed: 123, stopRange: 178, formationGap: 14,
+      fall: { duration: 0.94, land: 0.71 },
+      attack: { windup: 0.52, recovery: 0.35, impact: "smash", stunChance: 0.50, stun: 1.6 },
+      guard: { initial: 3.3, cooldown: 12, windup: 0.41, recovery: 0.22, armor: 112 } },
+    "drakonid-shaman": { name: "Драконид-шаман", hp: 138, dmg: 16, interval: 3.1, sizeMul: 1.01 * drakonidScale,
+      city: { anchor: [342, 358], artHeight: 335, release: [103.5, 79.6] },
+      ranged: true, speed: 114, stopRange: 410, fall: { duration: 0.94, land: 0.71 },
+      attack: { projectile: "cityFireball", windup: 0.93, recovery: 0.50, flight: 0.38, arc: 25 },
+      tornado: { initial: 4.9, cooldown: 11, windup: 0.93, recovery: 0.50,
+        speed: 610, landing: 0.43, dropDistance: 113, damage: 1.15 },
+       buff: { id: "bloodlust", initial: 8.5,
+         cooldown: 20, windup: 0.93, recovery: 0.50 } },
+    "black-dragon": { name: "Чёрный дракон", hp: 1050, dmg: 31, interval: 3.55, sizeMul: 1.7 * 1.25, boss: true,
+      city: { anchor: [280, 448], artHeight: 430, release: [87, 244], meleePadding: 147, spawnX: 0.565 },
+      fall: { duration: 1.28, land: 0.59 },
+      dragon: {
+        paw: { windup: 0.82, recovery: 0.55, reach: 273 },
+        breath: { windup: 1.23, recovery: 1.02, range: 510, expand: 0.24, active: 0.77, damageMul: 0.72 },
+        summon: { minion: "black-whelp", initial: 8, cooldown: 25, windup: 1.15, recovery: 0.65 }
+      } }
   },
   riftMotion: { burrow: 1.42, petrify: 0.88, unstone: 0.73, merge: 3.05 },
   riftMoves: {
@@ -208,6 +254,10 @@ DWR.CONFIG = {
     orcWarCry: { name: "Боевой клич", duration: 6, damageMultiplier: 1.25, attackSpeedMultiplier: 1.25, dispelBuff: true, color: "#ffa55c" },
     bleeding: { name: "Кровотечение", duration: 7, tickSec: 1, healthFraction: 0.03, dispelPriority: 2, color: "#ff7781" },
     ember: { name: "Ожог от болта", duration: 3, tickSec: 1, healthFraction: 0.025, dispelPriority: 1, color: "#ffc07f" },
+    whelpBurn: { name: "Поджог дракончика", duration: 4, tickSec: 1, healthFraction: 0.03,
+      dispelPriority: 2, color: "#ff9b60" },
+    bloodlust: { name: "Жажда крови", duration: 10, damageMultiplier: 2.5, attackSpeedMultiplier: 2.5,
+      dispelBuff: true, color: "#fb7969" },
     burning: { name: "Горение", duration: 5, tickSec: 1, healthFraction: 0.05, dispelPriority: 3, color: "#ff9b60", bossSpecial: true, area: true },
     sacrifice: { name: "Жертвенность", dispelBuff: true, color: "#f7cc86" },
     kragRage: { name: "Ярость Крага", duration: Infinity, damageMultiplier: 2, attackSpeedMultiplier: 2, dispelBuff: true, color: "#ff856b" },

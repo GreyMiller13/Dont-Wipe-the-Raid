@@ -14,10 +14,11 @@ DWR.Sim = (function () {
   const SKILL_SWING = { multishot: 0.63, preciseShot: 0.75, powerStrike: 0.72 };
   const controlled = unit => unit.effects.has("stunned") || unit.effects.has("frozen") || unit.effects.has("riftImpaled");
   const arrowShots = new Set(["arrow", "enemyArrow", "multi", "precise"]);
-  const bossSpecialAttacks = new Set(["smash", "stunStrike"]);
-  const areaAttacks = new Set(["smash", "claw", "clawWave", "riftFireball"]);
+  const bossSpecialAttacks = new Set(["smash", "stunStrike", "dragonPaw", "dragonBreath"]);
+  const areaAttacks = new Set(["smash", "claw", "clawWave", "riftFireball", "dragonBreath"]);
   const attackSkills = { fire: "fireball", slash: "powerStrike", multi: "multishot", precise: "preciseShot" };
   const canRaise = kind => kind === "skeletonW" || kind === "skeletonA";
+  const isSummonedWhelp = enemy => enemy.kind === "black-whelp" && enemy.summonedBy !== undefined;
   const acceptsFire = enemy => enemy.def.fireDamageMultiplier !== 0;
   const bombChargeKey = id => id === "noiseBomb" ? "noiseBombsLeft" : "bombsLeft";
   const soundCue = (run, cue, x) => run.fx.push({ type: "sound", cue, x });
@@ -60,7 +61,8 @@ DWR.Sim = (function () {
   }
 
   function inBattle(run) { return Boolean(run.fusion) || run.enemies.some(e => e.alive); }
-  const targetable = enemy => enemy?.alive && !enemy.rift?.hidden;
+  const targetable = enemy => enemy?.alive && !enemy.rift?.hidden &&
+    (enemy.arrivalX === undefined || (enemy.x >= 0 && enemy.x <= C().canvas.w));
   const vulnerable = enemy => targetable(enemy) && !enemy.effects.has("riftStone");
   function rollCritical(unit) {
     return Math.random() < unit.critChance;
@@ -108,9 +110,10 @@ DWR.Sim = (function () {
     const autoFireball = run.autoSkills.has("fireball");
     const autoTornado = run.autoSkills.has("fireTornado");
     if (!autoFireball && !autoTornado) return;
-    const rear = nearestEnemy(run, priest.x, enemy => enemy.x < priest.x && vulnerable(enemy) && acceptsFire(enemy));
+    const shield = activeShield(run, priest.x);
+    const rear = !shield && nearestEnemy(run, priest.x, enemy => enemy.x < priest.x && vulnerable(enemy) && acceptsFire(enemy));
     if (rear || run.enemies.some(enemy => targetable(enemy) && enemy.x < priest.x)) priest.facing = -1;
-    const target = rear ?? rangedTarget(run, priest.x, acceptsFire);
+    const target = shield || rear || rangedTarget(run, priest.x, acceptsFire);
     if (!target) return;
     const reserve = autoHeal ? skillStatus(run, "heal").cost : 0;
     const canFireball = autoFireball && priest.mana >= skillStatus(run, "fireball").cost + reserve;
@@ -131,6 +134,21 @@ DWR.Sim = (function () {
     return best;
   }
 
+  const raisedShield = enemy => Boolean(enemy.def.guard?.armor && enemy.armor > 0);
+
+  function activeShield(run, x, direction = 0, distance = Infinity) {
+    return nearestEnemy(run, x, enemy => {
+      const gap = enemy.x - x;
+      return raisedShield(enemy) && !enemy.bypass && (!direction || gap * direction >= 0) &&
+        Math.abs(gap) <= distance;
+    });
+  }
+
+  function redirectHeroAttack(run, hero, target) {
+    const direction = hero.id === "warrior" ? Math.sign(target.x - hero.x) || hero.facing : 0;
+    return activeShield(run, hero.x, direction) ?? target;
+  }
+
   function supportBetween(run, fromX, toX) {
     const { priest, ranger } = run.heroes;
     const direction = Math.sign(toX - fromX);
@@ -144,8 +162,10 @@ DWR.Sim = (function () {
   }
 
   const warriorTarget = (run, warrior) =>
+    activeShield(run, warrior.x, 1) ??
     nearestEnemy(run, warrior.x, enemy => enemy.x >= warrior.x && vulnerable(enemy)) ??
     nearestEnemy(run, warrior.x, enemy => enemy.x >= warrior.x) ??
+    activeShield(run, warrior.x, -1) ??
     nearestEnemy(run, warrior.x, enemy => vulnerable(enemy) && !warriorObstructed(run, enemy)) ??
     nearestEnemy(run, warrior.x);
   const canWarriorTarget = (run, enemy) => {
@@ -155,7 +175,8 @@ DWR.Sim = (function () {
   };
   function rangedTarget(run, x, include = () => true) {
     const canHit = enemy => vulnerable(enemy) && include(enemy);
-    return nearestEnemy(run, x, enemy => enemy.flanking && canHit(enemy)) ?? nearestEnemy(run, x, canHit);
+    return activeShield(run, x) ??
+      nearestEnemy(run, x, enemy => enemy.flanking && canHit(enemy)) ?? nearestEnemy(run, x, canHit);
   }
 
   function enemyTarget(run, enemy) {
@@ -200,11 +221,12 @@ DWR.Sim = (function () {
     const mm = isCombat ? 1 + cfg.enemyGrowthPerRoom * (room.tier ?? roomIndex) : 1;
     run.enemies = [];
     const list = room.enemies;
-    const spawnTo = cfg.enemies[list[0]]?.rift ? 0.885 : cfg.battle.enemyXTo;
+    const first = cfg.enemies[list[0]];
+    const spawnTo = first?.city ? 0.85 : first?.rift ? 0.885 : cfg.battle.enemyXTo;
     list.forEach((kind, i) => {
       const span = spawnTo - cfg.battle.enemyXFrom;
       const frac = list.length === 1 ? 0.5 : i / (list.length - 1);
-      const x = (cfg.battle.enemyXFrom + span * frac) * cfg.canvas.w;
+      const x = (cfg.enemies[kind].city?.spawnX ?? (cfg.battle.enemyXFrom + span * frac)) * cfg.canvas.w;
       run.enemies.push(createEnemy(kind, x, mm, i));
     });
     run.fusion = room.fusion ? { kind: room.fusion, parts: run.enemies.slice(), delay: null } : null;
@@ -221,12 +243,13 @@ DWR.Sim = (function () {
       uid: uidSeq++, kind, def, x, multiplier, facing: -1, boss: !!def.boss,
       h: Math.round(HERO_H * def.sizeMul * goblinScale),
       hp, maxHp: hp, dmg: def.dmg * multiplier, interval: def.interval,
-      armor: def.armor ?? 0,
-      alive: true, atkT: 1.2 + index * 0.3, walking: !def.ranged, walkDistance: 0, attack: null,
+      armor: def.armor ?? 0, maxArmor: def.armor ?? Math.round((def.guard?.armor ?? 0) * multiplier),
+      alive: true, atkT: 1.2 + index * 0.3, walking: !def.ranged && !def.dragon, walkDistance: 0, attack: null,
       effects: new Map(), buffT: def.buff?.initial ?? 0,
       guardT: def.guard?.initial ?? 0, stunStrikeT: def.stunStrike?.initial ?? 0,
+      tornadoT: def.tornado?.initial ?? 0, shieldLowerT: 0,
       furnaceT: def.furnace?.interval ?? 0,
-      summonT: 0,
+      summonT: def.dragon?.summon?.initial ?? 0,
       smashT: def.smash?.everySec || 0, howlT: def.howl?.initial ?? 0, freezeT: def.freeze?.initial ?? 0,
       lane: (def.formationGap ?? (kind === "skeletonW" ? 36 : 0)) * (index % 2)
     };
@@ -408,7 +431,13 @@ DWR.Sim = (function () {
       // Последний удар по пластинам разрушает броню целиком. Следующий уже снимает здоровье.
       e.armor -= dealt;
       run.fx.push({ type: "hurt", unit: e, amount: Math.round(dealt), critical, kind: "armor" });
-      if (e.armor === 0) grantStatus(run, e, "kragRage");
+      if (e.armor === 0) {
+        if (e.def.guard?.armor) {
+          e.shieldLowerT = e.def.guard.recovery;
+          e.attack = null;
+          run.fx.push({ type: "shieldBroken", unit: e });
+        } else grantStatus(run, e, "kragRage");
+      }
       return false;
     }
     e.hp -= dmg;
@@ -424,6 +453,7 @@ DWR.Sim = (function () {
         soundCue(run, "teleport", e.x);
       } else {
         if (e.rift) { e.attack = null; e.rift.motion = null; }
+        if (e.def.dragon) e.attack = null;
         run.events.push({ type: "kill", unit: e, boss: e.boss && !e.def.fusionPart });
         grantDefeatResources(run);
       }
@@ -479,7 +509,15 @@ DWR.Sim = (function () {
 
   // Координаты корпусов для визуальных линий (y — смещение от пола).
   const bypassFloorOffset = unit => unit.bypass ? -unit.bypass.depth : 0;
-  const torsoY = unit => bypassFloorOffset(unit) - unit.h * 0.55 - spikeElevation(unit).lift;
+  const airLift = unit => (unit.def?.city?.lift ?? 0) + (unit.liftOffset ?? 0);
+  const torsoY = unit => bypassFloorOffset(unit) - airLift(unit) - unit.h * 0.55 - spikeElevation(unit).lift;
+
+  function cityReleasePoint(enemy, x = enemy.x, facing = enemy.facing) {
+    const { anchor, artHeight, release } = enemy.def.city;
+    const scale = enemy.h / artHeight;
+    return { x: x + (anchor[0] - release[0]) * scale * facing,
+      y: torsoY(enemy) + enemy.h * 0.55 + (release[1] - anchor[1]) * scale };
+  }
 
   function meleeImpact(run, caster, target, kind) {
     const side = Math.sign(caster.x - target.x) || -caster.facing;
@@ -578,7 +616,7 @@ DWR.Sim = (function () {
   }
 
   function meleeRange(enemy, base) {
-    return base + (enemy.def.rift ? Math.max(0, enemy.h - 180) * 0.42 : 0);
+    return base + (enemy.def.rift ? Math.max(0, enemy.h - 180) * 0.42 : enemy.def.city?.meleePadding ?? 0);
   }
 
   function withinSwordRange(run, enemy) {
@@ -605,20 +643,32 @@ DWR.Sim = (function () {
   }
 
   function queueAttack(run, caster, target, kind, damage,
-    { windup = 0, flight = 0, arc = 0, offsetX = 0, offsetY = 0, skillId } = {}) {
+    { windup = 0, flight = 0, arc = 0, offsetX = 0, offsetY = 0, skillId, burnChance = 0 } = {}) {
     const direction = Math.sign(target.x - caster.x) || caster.facing;
     offsetX *= caster.id ? direction : -direction;
     const attack = { caster, target, kind, facing: caster.facing, damage: attackDamage(caster, damage), windup, flight, arc, offsetX, offsetY,
-      skillId, t: 0, startX: null, x: target.x + offsetX, y: torsoY(target) + offsetY };
+      skillId, burnChance, t: 0, startX: null, x: target.x + offsetX, y: torsoY(target) + offsetY };
     if (kind === "sword" || kind === "powerStrike" || kind === "slash") soundCue(run, "swing", caster.x);
     if (windup <= 0) releaseAttack(run, attack);
     run.attacks.push(attack);
   }
 
   function releaseAttack(run, attack) {
+    if (attack.caster.id) {
+      const target = redirectHeroAttack(run, attack.caster, attack.target);
+      if (target !== attack.target) {
+        attack.target = target;
+        attack.facing = Math.sign(target.x - attack.caster.x) || attack.facing;
+        attack.caster.facing = attack.facing;
+      }
+    }
     attack.startX = attack.caster.x;
+    if (attack.kind === "cityFireball") {
+      attack.origin = cityReleasePoint(attack.caster);
+    }
     if (attack.skillId) startSkillCooldown(run, attack.skillId);
-    const cue = attack.kind === "riftFireball" ? "firebolt" : attack.kind === "riftBoulder" ? "swing" : attack.kind;
+    const cue = attack.kind === "riftFireball" || attack.kind === "cityFireball" ? "firebolt"
+      : attack.kind === "riftBoulder" ? "swing" : attack.kind;
     if (attack.flight > 0 && attack.kind !== "slash") soundCue(run, cue, attack.startX);
   }
 
@@ -630,6 +680,10 @@ DWR.Sim = (function () {
       attack.t += dt;
       if (attack.t < attack.windup) return true;
       if (attack.startX === null) releaseAttack(run, attack);
+      if (attack.caster.id && attack.flight > 0) {
+        const gap = attack.target.x - attack.startX;
+        attack.target = activeShield(run, attack.startX, Math.sign(gap), Math.abs(gap)) ?? attack.target;
+      }
       attack.x = attack.target.x + attack.offsetX;
       attack.y = torsoY(attack.target) + attack.offsetY;
       if (attack.t < attack.windup + attack.flight) return true;
@@ -651,10 +705,13 @@ DWR.Sim = (function () {
       if (attack.target.id) {
         if (attack.damage > 0) hitHero(run, attack.target, attack.damage, attack.caster, attack.kind);
         if (attack.kind === "firebolt" && attack.target.alive) grantStatus(run, attack.target, "ember", attack.caster.kind);
+        if (attack.kind === "cityFireball" && attack.target.alive && Math.random() < attack.burnChance) {
+          grantStatus(run, attack.target, "whelpBurn", attack.caster.kind);
+        }
       } else {
         const skill = attackSkills[attack.kind] ?? attack.kind;
         const splash = attack.kind === "fire" ? run.stats.fireballBlast : 0;
-        const neighbors = splash > 0 ? run.enemies.filter(enemy =>
+        const neighbors = splash > 0 && !raisedShield(attack.target) ? run.enemies.filter(enemy =>
           vulnerable(enemy) && enemy !== attack.target && Math.abs(enemy.x - attack.target.x) <= 110) : [];
         const melee = attack.kind === "sword" || attack.kind === "powerStrike";
         const direct = attack.damage > 0 && vulnerable(attack.target) &&
@@ -671,10 +728,10 @@ DWR.Sim = (function () {
         }
         for (const enemy of neighbors) hitEnemy(run, enemy, splash, critical, attack.caster, skill);
       }
-      if (attack.kind === "fire") run.fx.push({ type: "fireImpact", x: attack.x, y: attack.y });
+      if (attack.kind === "fire" || attack.kind === "cityFireball") run.fx.push({ type: "fireImpact", x: attack.x, y: attack.y });
       if (attack.kind === "necroticOrb") run.fx.push({ type: "necroticImpact", x: attack.x, y: attack.y });
       // Стрела остаётся в кадре попадания; шар сменяется взрывом.
-      attack.resolved = attack.flight > 0 && attack.kind !== "fire" && attack.kind !== "necroticOrb";
+      attack.resolved = attack.flight > 0 && !["fire", "cityFireball", "necroticOrb"].includes(attack.kind);
       return attack.resolved;
     });
   }
@@ -768,6 +825,7 @@ DWR.Sim = (function () {
   }
 
   function advanceEnemyBypass(run, enemy, dt) {
+    if (isSummonedWhelp(enemy)) return false;
     if (!enemy.bypass) {
       const target = tauntTarget(run, enemy);
       if (!target) return false;
@@ -784,9 +842,13 @@ DWR.Sim = (function () {
   function specialAttackKey(unit) {
     const attack = unit.attack;
     if (attack?.riftMove) return C().riftMoves[attack.riftMove]?.cast ?? null;
+    if (attack?.dragonMove === "breath") return "dragonBreath";
+    if (attack?.dragonMove === "summon") return "dragonSummon";
     return attack?.freezing ? "frost" : attack?.howling ? "howl" : attack?.heavy ? "smash"
-      : attack?.buffing ? (unit.def.buff.id === "orcWarCry" ? "orcWarCry" : "buff")
-      : attack?.guarding ? "orcGuard" : attack?.stunning ? "hammerStun" : null;
+      : attack?.buffing ? (unit.def.buff.id === "boneFury" ? "buff" : unit.def.buff.id)
+      : attack?.tornado ? "cityTornado"
+      : attack?.guarding ? (unit.def.guard.armor ? "cityGuard" : "orcGuard")
+      : attack?.stunning ? "hammerStun" : null;
   }
 
   function noiseBombHit(run, enemy, stun) {
@@ -799,8 +861,8 @@ DWR.Sim = (function () {
     if (enemy.attack && !enemy.attack.hit) {
       const special = specialAttackKey(enemy);
       const timer = {
-        frost: "freeze", howl: "howl", smash: "smash", orcWarCry: "buff", buff: "buff",
-        orcGuard: "guard", hammerStun: "stunStrike"
+        frost: "freeze", howl: "howl", smash: "smash", orcWarCry: "buff", buff: "buff", bloodlust: "buff",
+        orcGuard: "guard", cityGuard: "guard", cityTornado: "tornado", hammerStun: "stunStrike"
       }[special];
       if (special && enemy.attack.riftMove) {
         cancelRiftCast(enemy);
@@ -808,7 +870,7 @@ DWR.Sim = (function () {
       } else if (timer) {
         enemy[timer + "T"] = enemy.def[timer].cooldown ?? enemy.def[timer].everySec;
         interrupted = true;
-      }
+      } else if (special === "dragonBreath" || special === "dragonSummon") interrupted = true;
       if (special || !enemy.boss) {
         enemy.attack = null;
         enemy.atkT = enemy.interval;
@@ -821,18 +883,28 @@ DWR.Sim = (function () {
     enemy.attack = null;
   }
 
-  function advanceHeroProjectiles(run, dt) {
+  function advanceSpellProjectiles(run, dt) {
     run.tornadoes = run.tornadoes.filter(tornado => {
-      const { direction } = tornado;
+      const { direction, caster, launch } = tornado;
       const edge = direction < 0 ? 0 : C().canvas.w;
       const distance = Math.min(Math.abs(edge - tornado.x), tornado.speed * dt);
-      const next = tornado.x + direction * distance;
-      for (const enemy of run.enemies) {
-        if (!vulnerable(enemy) || tornado.hit.has(enemy) || (enemy.x - tornado.origin) * direction < 0 ||
-            (enemy.x - tornado.x) * direction < -28 || (enemy.x - next) * direction > 0) continue;
-        tornado.hit.add(enemy);
-        hitEnemy(run, enemy, tornado.damage, rollCritical(tornado.caster), tornado.caster, "fireTornado");
-        run.fx.push({ type: "tornadoHit", unit: enemy });
+      let next = tornado.x + direction * distance;
+      if (launch && launch.elapsed < launch.duration) {
+        launch.elapsed += dt;
+        if (launch.elapsed < launch.duration) return true;
+        next = launch.landingX;
+      }
+      const shield = caster.id && activeShield(run, tornado.origin, direction);
+      const units = caster.id ? (shield ? [shield] : run.enemies) : Object.values(run.heroes);
+      for (const unit of units) {
+        if (!(caster.id ? vulnerable(unit) : unit.alive) || tornado.hit.has(unit) ||
+            (unit.x - tornado.origin) * direction < 0 ||
+            (unit.x - tornado.x) * direction < -28 || (unit.x - next) * direction > 0) continue;
+        tornado.hit.add(unit);
+        if (caster.id) hitEnemy(run, unit, tornado.damage, rollCritical(caster), caster, "fireTornado");
+        else hitHero(run, unit, tornado.damage, caster, "cityTornado");
+        run.fx.push({ type: "tornadoHit", unit });
+        if (unit === shield) return false;
       }
       tornado.x = next;
       return (edge - next) * direction > 0;
@@ -840,7 +912,9 @@ DWR.Sim = (function () {
     run.bombThrows = run.bombThrows.filter(bomb => {
       bomb.t += dt;
       if (bomb.t + 1e-9 < bomb.flight) return true;
-      for (const enemy of run.enemies) {
+      const shield = bomb.id === "bomb" && activeShield(run, bomb.origin);
+      if (shield) bomb.x = shield.x;
+      for (const enemy of shield ? [shield] : run.enemies) {
         if (targetable(enemy) && Math.abs(enemy.x - bomb.x) <= bomb.radius) {
           if (bomb.id === "noiseBomb") noiseBombHit(run, enemy, bomb.stun);
           else hitEnemy(run, enemy, bomb.damage, rollCritical(bomb.caster), bomb.caster, "bomb");
@@ -852,7 +926,21 @@ DWR.Sim = (function () {
   }
 
   function buffAllies(run, buff) {
-    return run.enemies.filter(unit => unit.alive && buff.targets.includes(unit.kind));
+    return run.enemies.filter(unit => unit.alive && (!buff.targets || buff.targets.includes(unit.kind)));
+  }
+
+  function launchCityTornado(run, enemy, target, spec) {
+    const point = cityReleasePoint(enemy);
+    const direction = castDirection(enemy, target.x);
+    const edge = direction < 0 ? 0 : C().canvas.w;
+    const landingX = point.x + direction * spec.dropDistance;
+    run.tornadoes.push({
+      caster: enemy, origin: enemy.x, x: enemy.x, direction, speed: spec.speed,
+      damage: attackDamage(enemy, enemy.dmg * spec.damage), hit: new Set(),
+      launch: { ...point, duration: spec.landing, elapsed: 0, landingX: direction < 0
+        ? Math.max(edge, landingX) : Math.min(edge, landingX) }
+    });
+    soundCue(run, "tornado", enemy.x);
   }
 
   function howlAtParty(run, enemy) {
@@ -1082,15 +1170,105 @@ DWR.Sim = (function () {
     } else enemy.walking = false;
   }
 
+  function dragonPawReach(enemy, target) {
+    const gap = enemy.x - target.x;
+    return gap >= 0 && gap <= enemy.def.dragon.paw.reach;
+  }
+
+  function releaseDragonSummon(run, dragon, summon) {
+    const { w } = C().canvas;
+    const leftFirst = !dragon.nextSummonFromRight;
+    for (let i = 0; i < 3; i++) {
+      const left = i === 1 ? !leftFirst : leftFirst;
+      const stagger = i === 2 ? 1 : 0;
+      const offscreen = 138 + stagger * 72;
+      const whelp = createEnemy(summon.minion, left ? -offscreen : w + offscreen, 1, i);
+      whelp.arrivalX = left ? 46 + stagger * 50 : w - 184;
+      whelp.lane = left ? 0 : stagger * 60;
+      whelp.liftOffset = stagger * 46;
+      whelp.flanking = left;
+      whelp.facing = left ? 1 : -1;
+      whelp.walking = true;
+      whelp.summonedBy = dragon.uid;
+      whelp.noLoot = true;
+      run.enemies.push(whelp);
+    }
+    dragon.nextSummonFromRight = leftFirst;
+    soundCue(run, "summon", dragon.x);
+  }
+
+  function tickDragon(run, enemy, dt) {
+    const { paw, breath, summon } = enemy.def.dragon;
+    const attack = enemy.attack;
+    enemy.atkT -= dt;
+    enemy.summonT -= dt;
+    if (!attack) {
+      if (summon && enemy.summonT <= 1e-9) {
+        const { windup, recovery } = summon;
+        enemy.summonT = summon.cooldown;
+        enemy.attack = { dragonMove: "summon", windup, recovery, t: 0, hit: false };
+        return;
+      }
+      if (enemy.atkT > 1e-9) return;
+      const provoked = tauntTarget(run, enemy);
+      const target = provoked ?? enemyTarget(run, enemy);
+      if (!target) return;
+      const usePaw = !enemy.nextDragonBreath && dragonPawReach(enemy, target);
+      const { windup, recovery } = usePaw ? paw : breath;
+      enemy.attack = { dragonMove: usePaw ? "paw" : "breath", lockedTarget: target,
+        provoked: usePaw && !!provoked, windup, recovery, t: 0, hit: false,
+        hitHeroes: usePaw ? null : new Set() };
+      soundCue(run, usePaw ? "swing" : "castFire", enemy.x);
+      return;
+    }
+
+    const previousT = attack.t;
+    attack.t += dt;
+    if (!attack.hit) {
+      if (attack.t + 1e-9 < attack.windup) return;
+      attack.hit = true;
+      attack.t = Math.max(attack.windup, attack.t);
+      if (attack.dragonMove === "summon") {
+        releaseDragonSummon(run, enemy, summon);
+      } else {
+        enemy.atkT = enemy.interval;
+        enemy.nextDragonBreath = attack.dragonMove === "paw";
+        if (attack.provoked) enemy.taunted = false;
+        if (attack.dragonMove === "paw") {
+          const target = attack.lockedTarget;
+          if (target.alive && dragonPawReach(enemy, target)) {
+            meleeImpact(run, enemy, target, "claw");
+            hitHero(run, target, attackDamage(enemy, enemy.dmg), enemy, "dragonPaw");
+          }
+        } else soundCue(run, "furnaceWave", enemy.x);
+      }
+    }
+
+    if (attack.dragonMove === "breath" && previousT < attack.windup + breath.active - 1e-9) {
+      const age = attack.t - attack.windup;
+      const reach = breath.range * Math.min(1, age / breath.expand);
+      const mouthX = cityReleasePoint(enemy).x;
+      const leftEdge = mouthX - reach;
+      for (const id of run.heroOrder) {
+        const hero = run.heroes[id];
+        if (!hero.alive || hero.x < leftEdge || hero.x > mouthX || attack.hitHeroes.has(id)) continue;
+        attack.hitHeroes.add(id);
+        hitHero(run, hero, attackDamage(enemy, enemy.dmg * breath.damageMul), enemy, "dragonBreath");
+      }
+    }
+    if (attack.t + 1e-9 >= attack.windup + attack.recovery) enemy.attack = null;
+  }
+
   function enemyAttack(run, e, target, dt, justStopped) {
     const attackDt = dt * effectMultiplier(e, "attackSpeedMultiplier");
     e.atkT -= attackDt;
-    const { buff, howl, smash, freeze, guard, stunStrike, bleed } = e.def;
+    const { buff, howl, smash, freeze, guard, stunStrike, bleed, tornado } = e.def;
     if (buff) e.buffT -= dt;
     if (howl) e.howlT -= dt;
     if (freeze) e.freezeT -= dt;
     if (guard) e.guardT -= dt;
     if (stunStrike) e.stunStrikeT -= dt;
+    if (tornado) e.tornadoT -= dt;
     if (e.walking) {
       e.attack = null;
       return;
@@ -1107,8 +1285,9 @@ DWR.Sim = (function () {
       const freezing = !!freeze && e.freezeT <= 0;
       const guarding = !!guard && e.guardT <= 0;
       const stunning = !!stunStrike && e.stunStrikeT <= 0 && !e.furnaceCast;
+      const castingTornado = !!tornado && !buffing && e.tornadoT <= 0;
       const move = howling ? howl : freezing ? freeze : buffing ? buff : heavy ? smash
-        : guarding ? guard : stunning ? stunStrike : e.def.attack;
+        : guarding ? guard : stunning ? stunStrike : castingTornado ? tornado : e.def.attack;
       // Старая конфигурация из кэша может не содержать параметров анимации.
       const windup = move?.windup ?? (e.def.ranged ? 0.55 : 0.42);
       const recovery = move?.recovery ?? 0.33;
@@ -1118,16 +1297,28 @@ DWR.Sim = (function () {
       let lockedTarget = null;
       const provoked = target === tauntTarget(run, e) && !(heavy || buffing || howling || freezing || guarding || stunning);
       if (freezing || stunning) lockedTarget = chooseHero(run, () => true);
-      else if (move?.aimRear && !provoked) lockedTarget = chooseHero(run, hero => hero.id !== "warrior") ?? target;
+      else if (move?.aimRear && !provoked) {
+        lockedTarget = isSummonedWhelp(e) ? target : chooseHero(run, hero => hero.id !== "warrior") ?? target;
+      }
+      if (e.def.city) e.facing = Math.sign((lockedTarget ?? target).x - e.x) || e.facing;
       e.attack = { windup, recovery, heavy, buffing, howling, freezing, guarding, stunning, lockedTarget, provoked, startedOn: target,
+        tornado: castingTornado,
         beam: !!move?.beam, projectile: move?.projectile,
         impact: move?.impact, wave: move?.wave, party: move?.party,
         groundX: heavy ? Math.max(0, e.x - e.h * smash.contactOffset) : null, hit: false, t: 0 };
-      if (freezing || (buffing && buff.id !== "orcWarCry")) soundCue(run, "castLight", e.x);
+      if (castingTornado || move?.projectile === "cityFireball" || buffing && buff.id === "bloodlust") soundCue(run, "castFire", e.x);
+      else if (freezing || (buffing && buff.id !== "orcWarCry")) soundCue(run, "castLight", e.x);
+      else if (guarding && guard.armor) soundCue(run, "guard", e.x);
       else if (heavy || stunning || !e.def.ranged && !buffing && !howling && !guarding) soundCue(run, "swing", e.x);
     }
     const attack = e.attack;
+    const provoked = isSummonedWhelp(e) && tauntTarget(run, e);
+    if (provoked) {
+      attack.lockedTarget = provoked;
+      attack.provoked = true;
+    }
     const aimed = attack.lockedTarget ?? target;
+    if (e.def.city && e.def.ranged && !attack.buffing) e.facing = Math.sign(aimed.x - e.x) || e.facing;
     attack.targetX = aimed.x;
     attack.targetY = torsoY(aimed);
     attack.t = attack.windup - Math.max(0, e.atkT);
@@ -1152,9 +1343,17 @@ DWR.Sim = (function () {
       for (const unit of buffAllies(run, buff)) grantStatus(run, unit, buff.id);
       return;
     }
+    if (attack.tornado) {
+      e.tornadoT = tornado.cooldown;
+      launchCityTornado(run, e, aimed, tornado);
+      return;
+    }
     if (attack.guarding) {
       e.guardT = guard.cooldown;
-      grantStatus(run, e, guard.status);
+      if (guard.armor) {
+        e.armor = e.maxArmor;
+        e.attack = null;
+      } else grantStatus(run, e, guard.status);
       return;
     }
     if (attack.stunning) {
@@ -1180,6 +1379,9 @@ DWR.Sim = (function () {
     if (e.def.ranged && !attack.beam) {
       if (attack.projectile === "firebolt") {
         if (aimed.alive) queueAttack(run, e, aimed, "firebolt", dmg, { flight: 0.42, arc: 11 });
+      } else if (attack.projectile === "cityFireball") {
+        const { flight, arc, burnChance } = e.def.attack;
+        if (aimed.alive) queueAttack(run, e, aimed, "cityFireball", dmg, { flight, arc, burnChance });
       } else if (attack.projectile === "necroticOrb") {
         queueAttack(run, e, target, "necroticOrb", dmg, { flight: 0.40, arc: 8 });
       } else {
@@ -1193,11 +1395,15 @@ DWR.Sim = (function () {
         ? run.heroOrder.map(id => run.heroes[id]).filter(h => h.alive)
         : [target];
       const damage = attackDamage(e, dmg);
-      const ability = e.kind === "orc-axe" ? "axe" : e.kind === "krag" ? "hammer" : attack.impact ?? "melee";
+      const ability = e.kind === "orc-axe" ? "axe"
+        : e.kind === "krag" || e.kind === "drakonid-warrior" ? "hammer" : attack.impact ?? "melee";
       for (const hero of targets) {
         meleeImpact(run, e, hero, attack.impact || "enemy");
         hitHero(run, hero, damage, e, ability);
         if (hero.alive && bleed && Math.random() < bleed.chance) grantStatus(run, hero, bleed.status, e.kind);
+        if (hero.alive && e.def.attack?.stunChance && Math.random() < e.def.attack.stunChance) {
+          interruptHero(run, hero, "stunned", e.def.attack.stun, e.kind);
+        }
       }
       if (attack.wave && !run.over) {
         run.groundWaves.push({ ...attack.wave, kind: "claw", caster: e, damage, origin: target.x, distance: 0,
@@ -1235,7 +1441,7 @@ DWR.Sim = (function () {
     if (run.over) return;
     resolveAttacks(run, dt);
     if (run.over) return;
-    advanceHeroProjectiles(run, dt);
+    advanceSpellProjectiles(run, dt);
     if (run.groundWaves.length) advanceGroundWaves(run, dt);
     if (run.over) return;
     tickFusion(run, dt);
@@ -1303,9 +1509,22 @@ DWR.Sim = (function () {
     for (const e of run.enemies) {
       if (!e.alive) continue;
       if (e.rift) { tickRiftEnemy(run, e, dt); continue; }
-      if (controlled(e)) { e.walking = false; continue; }
+      if (e.shieldLowerT > 0) e.shieldLowerT = Math.max(0, e.shieldLowerT - dt);
+      if (controlled(e) || e.shieldLowerT > 0) { e.walking = false; continue; }
+      if (e.def.dragon) { tickDragon(run, e, dt); continue; }
+      if (e.arrivalX !== undefined) {
+        walkTo(e, e.arrivalX, e.def.speed * dt);
+        if (e.x === e.arrivalX) delete e.arrivalX;
+        continue;
+      }
       const normalTarget = enemyTarget(run, e);
       if (!normalTarget) break;
+      if (raisedShield(e)) {
+        const target = tauntTarget(run, e) ?? normalTarget;
+        e.facing = Math.sign(target.x - e.x) || e.facing;
+        e.walking = false;
+        continue;
+      }
       if (e.def.furnace) tickFurnace(run, e, dt);
       if (e.appearT > 0) { e.appearT -= dt; continue; }
       if ((e.def.summon || e.def.raise) && tickRitual(run, e, dt)) continue;
@@ -1320,9 +1539,11 @@ DWR.Sim = (function () {
         continue;
       }
       const target = provoked ?? normalTarget;
-      if (e.flanking || e.def.raise || provoked) e.facing = Math.sign(target.x - e.x) || e.facing;
+      if ((e.flanking || e.def.raise || provoked || e.def.city) && (!e.def.city || !e.attack)) {
+        e.facing = Math.sign(target.x - e.x) || e.facing;
+      }
       const wasWalking = e.walking;
-      if (e.def.ranged) e.walking = false;
+      if (e.def.ranged && (!e.def.city || e.attack)) e.walking = false;
       else if (!e.attack?.howling) {
         const gap = (target.x - e.x) * e.facing - (e.def.stopRange ?? 95) - e.lane;
         if (gap > 0) {
@@ -1379,6 +1600,8 @@ DWR.Sim = (function () {
   function castTargeted(run, skillId, e) {
     const s = C().skills[skillId];
     const h = run.heroes[s.owner];
+    if (s.owner === "warrior" && !canWarriorTarget(run, e)) return false;
+    e = redirectHeroAttack(run, h, e);
     if (s.owner === "warrior" && !canWarriorTarget(run, e)) return false;
     if (!spendSkill(run, skillId, h, s.res, { deferCooldown: true })) return false;
     h.facing = Math.sign(e.x - h.x) || h.facing;
@@ -1454,13 +1677,23 @@ DWR.Sim = (function () {
     return best;
   }
 
+  const preparingBloodlust = enemy => enemy.def.buff?.id === "bloodlust" && enemy.attack?.buffing && !enemy.attack.hit;
+
   function canDispelEnemy(enemy) {
-    return targetable(enemy) && [...enemy.effects.keys()].some(id => C().effects[id]?.dispelBuff);
+    return targetable(enemy) && (preparingBloodlust(enemy) ||
+      [...enemy.effects.keys()].some(id => C().effects[id]?.dispelBuff));
   }
 
   function dispelEffects(run, target, enemy) {
     if (enemy ? !targetable(target) : !target?.alive) return;
     let removed = false;
+    if (enemy && preparingBloodlust(target)) {
+      target.attack = null;
+      target.atkT = target.interval;
+      target.buffT = target.def.buff.cooldown;
+      run.fx.push({ type: "castInterrupted", unit: target });
+      removed = true;
+    }
     for (const id of target.effects.keys()) {
       const effect = C().effects[id];
       if (!(enemy ? effect?.dispelBuff : effect?.dispelPriority)) continue;
@@ -1538,12 +1771,15 @@ DWR.Sim = (function () {
     if (run.over || !inBattle(run) || !Number.isFinite(x) || x < 0 || x > C().canvas.w) return false;
     if (skillId === "fireTornado") {
       const priest = run.heroes.priest, direction = castDirection(priest, x);
+      const shield = activeShield(run, priest.x);
+      if (shield) return beginPriestCast(run, skillId, shield.x);
       if (!run.enemies.some(enemy => vulnerable(enemy) && (enemy.x - priest.x) * direction >= 0)) return false;
       return beginPriestCast(run, skillId, x);
     }
     const spec = C().skills[skillId];
     if (spec?.type !== "ground" || !spec.stock || !canThrowBomb(run, skillId)) return false;
     const ranger = run.heroes.ranger;
+    if (skillId === "bomb") x = activeShield(run, ranger.x)?.x ?? x;
     run[bombChargeKey(skillId)]--;
     if (!ranger.attackPose) startAttackPose(ranger, 0.38, 0, "bomb");
     soundCue(run, "bombThrow", ranger.x);
@@ -1595,7 +1831,7 @@ DWR.Sim = (function () {
   function useMultishot(run, first) {
     const id = "multishot", s = C().skills[id], ranger = run.heroes.ranger;
     if (!spendSkill(run, id, ranger, s.res)) return false;
-    const others = run.enemies.filter(enemy => vulnerable(enemy) && enemy !== first)
+    const others = run.enemies.filter(enemy => !raisedShield(first) && vulnerable(enemy) && enemy !== first)
       .sort((a, b) => Math.abs(a.x - ranger.x) - Math.abs(b.x - ranger.x));
     const targets = [first, ...others].slice(0, s.targets);
     ranger.facing = Math.sign(first.x - ranger.x) || ranger.facing;
@@ -1633,6 +1869,6 @@ DWR.Sim = (function () {
   }
 
   return { createRun, spawnRoom, tick, useTargeted, useInstant, useHeal, useDispel, useGround, canThrowBomb, bombRadius, bombCharges, setAuto,
-           specialAttackKey, targetable, canDispelEnemy, spikeElevation, bypassFloorOffset,
+           specialAttackKey, targetable, canDispelEnemy, spikeElevation, bypassFloorOffset, airLift, cityReleasePoint, redirectHeroAttack,
            usePotion, inBattle, frontHero, nearestEnemy, canWarriorTarget, skillStatus, activeStatuses, applyStatus, hasHeroDamageEffect };
 })();
