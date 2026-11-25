@@ -19,11 +19,19 @@ DWR.Run = (function () {
     no: { x: 648, y: 368, w: 188, h: 50 }
   };
   const PARTY = {
-    warrior: ["Ярость", "rage", "#eb9478"],
-    priest: ["Мана", "mana", "#a6b8ff"],
-    ranger: ["Фокус", "focus", "#91cd94"]
+    warrior: ["Ярость", "rage", "#754136"],
+    priest: ["Мана", "mana", "#465b95"],
+    ranger: ["Фокус", "focus", "#546638"]
   };
-  const partyCard = i => ({ x: 34, y: 153 + i * 88 + (i > 1 ? 16 : 0), w: 230, h: i === 1 ? 93 : 77 });
+  const PARTY_CARD = { x: 34, y: 144, w: 230, h: 107 };
+  const PARTY_GAP = 7;
+  const PRIEST_CARD_EXTRA = 12;
+  const partyCard = i => ({
+    ...PARTY_CARD,
+    y: PARTY_CARD.y + i * (PARTY_CARD.h + PARTY_GAP) + (i > 1 ? PRIEST_CARD_EXTRA : 0),
+    h: PARTY_CARD.h + (i === 1 ? PRIEST_CARD_EXTRA : 0)
+  });
+  const partyNumber = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 });
   const LOOT_ART = {
     coin: { size: 40, reach: 43, color: "#ffd07b" },
     potion: { size: 52, reach: 49, color: "#ff938a" }
@@ -2008,55 +2016,87 @@ DWR.Run = (function () {
     }
   }
 
+  function drawPartyBar(ctx, x, y, w, label, value, max, color, roundValue) {
+    const height = 16, fraction = max > 0 ? Math.max(0, Math.min(1, value / max)) : 0;
+    box(ctx, x, y, w, height, "#11151d", "#454653", 4);
+    if (fraction > 0) {
+      ctx.save();
+      roundRect(ctx, x + 1, y + 1, w - 2, height - 2, 3);
+      ctx.clip();
+      ctx.fillStyle = color;
+      ctx.fillRect(x + 1, y + 1, (w - 2) * fraction, height - 2);
+      ctx.restore();
+    }
+    text(ctx, label, x + 7, y + 12, "600 11px", "#f5eee5");
+    text(ctx, `${Math.max(0, roundValue(value))} / ${max}`, x + w - 7, y + 12, "600 11px", "#f5eee5", "right");
+  }
+
+  function drawPartyAuto(ctx, hero, left, y, right) {
+    const labels = hero.alive ? R.tempPanel
+      .filter(id => R.sim.autoSkills.has(id) && DWR.CONFIG.skills[id]?.owner === hero.id)
+      .map(DWR.Panel.skillLabel) : [];
+    text(ctx, "Авто", left, y, "11px", "#b0aaba");
+    let start = left + 29;
+    const font = "600 11px";
+    ctx.font = font + " Segoe UI";
+    let line = "";
+    for (const label of labels) {
+      const next = line ? line + " · " + label : label;
+      if (line && ctx.measureText(next).width > right - start) {
+        text(ctx, line, start, y, font, "#a9dfc2");
+        start = left;
+        line = label;
+        y += 12;
+      } else line = next;
+    }
+    text(ctx, line || (hero.alive ? "выкл." : "—"), start, y, font, line ? "#a9dfc2" : "#b0aaba");
+  }
+
   function drawParty(ctx) {
     text(ctx, "Отряд", 34, 130, "600 18px", "#f5eee5");
     const alive = R.sim.heroOrder.filter(id => R.sim.heroes[id].alive).length;
     text(ctx, alive + " / " + R.sim.heroOrder.length, 262, 130, "13px", "#b0aaba", "right");
     for (const [i, id] of R.sim.heroOrder.entries()) {
       const h = R.sim.heroes[id];
-      const r = partyCard(i), cy = r.y + 10;
+      const r = partyCard(i), right = r.x + r.w - 9;
       const [resource, key, color] = PARTY[id];
       const hp = h.hp / h.maxHp;
       const border = R.hoverTarget === h ? "#ffd092" : (R.flash.get(h) || 0) > 0 ? "#bf7473" : "#353542";
       box(ctx, r.x, r.y, r.w, r.h, "#191a23", border);
-      box(ctx, 44, cy, 49, 56, "#262632", "#353542", 6);
+      const portrait = { x: r.x + 10, y: r.y + 10, w: 49, h: 56 };
+      const left = portrait.x + portrait.w + 11;
+      box(ctx, portrait.x, portrait.y, portrait.w, portrait.h, "#262632", "#353542", 6);
       const img = DWR.Assets.img[id];
-      if (img.naturalWidth) {
+      if (img?.naturalWidth) {
         ctx.save();
-        roundRect(ctx, 44, cy, 49, 56, 6); ctx.clip();
+        roundRect(ctx, portrait.x, portrait.y, portrait.w, portrait.h, 6); ctx.clip();
         ctx.imageSmoothingEnabled = false;
         ctx.globalAlpha = h.alive ? 1 : 0.35;
-        ctx.drawImage(img, 76 - 19, 38, 38, 43, 44, cy, 49, 56);
+        ctx.drawImage(img, 57, 38, 38, 43, portrait.x, portrait.y, portrait.w, portrait.h);
         ctx.restore();
       }
-      text(ctx, DWR.CONFIG.heroes[id].name, 104, cy + 13, "600 15px", "#f5eee5");
-      if (!h.alive) {
-        text(ctx, "Вне боя", 104, cy + 42, "13px", "#ff938a");
-        continue;
-      }
-      text(ctx, Math.ceil(h.hp) + "/" + h.maxHp, 251, cy + 13, "12px", "#e1d7dd", "right");
-      bar(ctx, 149, cy + 22, 90, 7, hp, hp > 0.35 ? "#86c89e" : "#ff867d");
-      text(ctx, "Крит " + Math.round(h.critChance * 100) + "%", 251, cy + 30, "11px", "#ffd092", "right");
+      text(ctx, DWR.CONFIG.heroes[id].name, left, r.y + 19, "600 15px", "#f5eee5");
+      if (!h.alive) text(ctx, "Вне боя", right, r.y + 19, "12px", "#ff938a", "right");
+      drawPartyBar(ctx, left, r.y + 26, right - left, "Здоровье", h.hp, h.maxHp,
+        hp > 0.35 ? "#32675c" : "#7a4149", Math.ceil);
       const max = key === "mana" ? h.manaMax : DWR.CONFIG.resources[key].max;
-      if (max > 0) {
-        const value = key === "rage" ? resource : resource + " " + Math.floor(h[key]) + "/" + max;
-        text(ctx, value, 104, cy + 47, "12px", "#b0aaba");
-        bar(ctx, 217, cy + 40, 66, 6, h[key] / max, color);
-      }
-      if (id === "priest") {
-        const labels = { heal: "леч.", dispel: "снятие", fireball: "шар", fireTornado: "смерч" };
-        const auto = Object.keys(labels).filter(skill => R.sim.autoSkills.has(skill)).map(skill => labels[skill]).join(" · ");
-        text(ctx, "Авто", 104, cy + 67, "12px", "#b0aaba");
-        ctx.font = "600 12px Segoe UI"; ctx.fillStyle = "#a9dfc2"; ctx.textAlign = "right";
-        ctx.fillText(auto || "выкл.", 251, cy + 67, 113);
-      }
+      drawPartyBar(ctx, left, r.y + 45, right - left, resource, h[key], max,
+        h.alive ? color : "#353440", Math.floor);
+
+      const damageLabel = "Урон авто";
+      text(ctx, damageLabel, left, r.y + 76, "12px", "#b0aaba");
+      text(ctx, id === "priest" ? "—" : partyNumber.format(h.dmg),
+        left + ctx.measureText(damageLabel).width + 6, r.y + 76, "600 12px", "#f5eee5");
+      text(ctx, `Крит ${partyNumber.format(h.critChance * 100)}%`, right, r.y + 76, "12px", "#ffd092", "right");
+      drawPartyAuto(ctx, h, left, r.y + 88, right);
     }
-    box(ctx, 34, 443, 230, 108, "#191a23", "#353542");
-    text(ctx, "Добыча за рейд", 49, 465, "600 15px", "#f5eee5");
-    text(ctx, R.runCoins + " монет", 49, 491, "600 16px", "#ffd092");
-    text(ctx, "Руны " + R.runRunes, 249, 491, "600 15px", "#ddd3ff", "right");
-    text(ctx, "Наведите курсор на добычу,", 49, 515, "13px", "#b0aaba");
-    text(ctx, "чтобы её подобрать", 49, 533, "13px", "#b0aaba");
+    const lootY = partyCard(R.sim.heroOrder.length).y;
+    const { x, w } = PARTY_CARD;
+    box(ctx, x, lootY, w, BOARD.y + BOARD.h - lootY, "#191a23", "#353542");
+    text(ctx, "Добыча за рейд", x + 9, lootY + 16, "600 13px", "#f5eee5");
+    text(ctx, R.runCoins + " монет", x + 9, lootY + 33, "600 14px", "#ffd092");
+    text(ctx, "Руны " + R.runRunes, x + w - 9, lootY + 33, "600 13px", "#ddd3ff", "right");
+    text(ctx, "Наведите курсор, чтобы подобрать", x + 9, lootY + 48, "11px", "#b0aaba");
   }
 
   function drawMenu(ctx) {

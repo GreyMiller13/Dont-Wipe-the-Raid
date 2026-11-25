@@ -10,10 +10,12 @@ DWR.Panel = (function () {
 
   const RES_COLOR = { rage: "#eb9478", focus: "#91cd94", mana: "#a6b8ff" };
   const RES_NAME = { rage: "ярость", focus: "фокус", mana: "мана" };
+  const effectNumber = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 });
   const LABEL = { powerStrike: "Удар", block: "Блок", taunt: "Провокация", multishot: "Мультивыстрел",
     preciseShot: "Меткий", heal: "Лечение", fireball: "Фаербол", potion: "Зелье",
     dispel: "Рассеивание", massHeal: "Масс. лечение", fireTornado: "Смерч", sacrifice: "Жертвенность", bomb: "Бомба",
     noiseBomb: "Шумовая бомба", righteousFury: "Праведная ярость" };
+  const skillLabel = id => LABEL[id] ?? DWR.CONFIG.skills[id]?.name ?? id;
 
   function slotRect(run, i) {
     const width = run.tempPanel.length * (SLOT + GAP) - GAP;
@@ -67,6 +69,31 @@ DWR.Panel = (function () {
     return skill.auto ? action + " · ПКМ — переключить авто" : action;
   }
 
+  function drawSkillHint(ctx, run, hoveredSkill) {
+    const aim = run.aim;
+    const id = aim ? aim.id ?? "potion" : hoveredSkill;
+    const skill = DWR.CONFIG.skills[id];
+    const hint = aim
+      ? (aim.press ? "Отпустите ЛКМ на цели" : "ЛКМ — выбрать цель · Esc — отменить")
+      : actionHint(skill, run.sim.autoSkills.has(id));
+    const effect = DWR.Sim.skillEffect(run.sim, id, aim ? run.hoverTarget : null);
+    let x = 218;
+    if (effect) {
+      const amount = effectNumber.format(effect.amount);
+      const suffix = id === "multishot" ? " за стрелу" : id === "bomb" || id === "fireTornado" ? " на цель" : "";
+      const value = effect.damage ? `${amount} урона${suffix}`
+        : id === "massHeal" ? `${amount} ОЗ каждому герою` : `восстанавливает ${amount} ОЗ`;
+      const label = `${skill.name} · ${value}`;
+      ctx.font = "600 13px Segoe UI";
+      ctx.fillStyle = effect.damage ? "#ffd092" : "#aee3b6";
+      ctx.fillText(label, x, 593);
+      x += ctx.measureText(label).width + 18;
+    }
+    ctx.font = "13px Segoe UI";
+    ctx.fillStyle = "#b0aaba";
+    ctx.fillText(hint, x, 593);
+  }
+
   function draw(ctx, run) {
     ctx.beginPath(); ctx.roundRect(34, 568, 1212, 126, 12);
     ctx.fillStyle = "#191a23"; ctx.fill();
@@ -76,10 +103,7 @@ DWR.Panel = (function () {
     const hoveredSkill = run.tempPanel[hoveredSlot];
     ctx.textAlign = "left"; ctx.font = "600 16px Segoe UI"; ctx.fillStyle = "#f5eee5";
     ctx.fillText("Панель навыков", 55, 593);
-    ctx.font = "13px Segoe UI"; ctx.fillStyle = "#b0aaba";
-    const hint = run.aim && !run.aim.press ? "Esc — отменить прицеливание"
-      : actionHint(DWR.CONFIG.skills[hoveredSkill], run.sim.autoSkills.has(hoveredSkill));
-    ctx.fillText(hint, 218, 593);
+    drawSkillHint(ctx, run, hoveredSkill);
 
     for (let i = 0; i < run.tempPanel.length; i++) {
       const r = slotRect(run, i), id = run.tempPanel[i];
@@ -119,7 +143,7 @@ DWR.Panel = (function () {
         ctx.textAlign = "center";
       }
       ctx.font = "600 12px Segoe UI"; ctx.fillStyle = enabled ? "#f5eee5" : "#aaa6b6";
-      ctx.fillText(LABEL[id], cx, r.y + 54, r.w - 8);
+      ctx.fillText(skillLabel(id), cx, r.y + 54, r.w - 8);
       ctx.font = "12px Segoe UI"; ctx.fillStyle = color;
       const detail = id === "potion" ? "×" + run.sim.potionsLeft
         : skill.stock ? "×" + DWR.Sim.bombCharges(run.sim, id)
@@ -129,5 +153,5 @@ DWR.Panel = (function () {
     }
   }
 
-  return { draw, drawIcon, actionHint, slotAt, equipRunSkill, slotUsable, Y0 };
+  return { draw, drawIcon, actionHint, slotAt, equipRunSkill, slotUsable, skillLabel, Y0 };
 })();

@@ -1,4 +1,4 @@
-// DWR :: screens.js — DOM-экраны: меню, настройки, выбор локации, итоги.
+// DWR :: screens.js — DOM-экраны: меню, журнал обновлений, настройки, выбор локации, итоги.
 // Контракт: DWR.Screens.redraw(), DWR.Screens.showResults(r).
 "use strict";
 window.DWR = window.DWR || {};
@@ -13,7 +13,7 @@ DWR.Screens = (function () {
 
   const menuButton = (id, label, attrs = "") => `
     <button id="scr-btn-${id}" class="btn" ${attrs}>
-      ${id === "stats" ? '<span class="scr-menu-stats-icon" aria-hidden="true"></span>'
+      ${id === "stats" || id === "news" ? `<span class="scr-menu-icon scr-menu-${id}-icon" aria-hidden="true"></span>`
         : `<img src="${DWR.Assets.assetUrl("menu-" + id + ".png")}" alt="">`}${label}
     </button>`;
 
@@ -33,6 +33,7 @@ DWR.Screens = (function () {
             ${started ? "" : menuButton("continue", "Продолжить", "disabled")}
             ${started ? menuButton("stats", "Статистика", 'aria-haspopup="dialog" aria-controls="scr-raid-stats"') : ""}
             ${menuButton("settings", "Настройки", 'aria-haspopup="dialog"')}
+            ${menuButton("news", "Что нового", 'aria-controls="screen-news"')}
           </div>
         </div>
       </main>
@@ -57,7 +58,41 @@ DWR.Screens = (function () {
         startNew();
       });
     } else newButton.addEventListener("click", startNew);
+    el.querySelector("#scr-btn-news").addEventListener("click", () => DWR.showScreen("news"));
     bindSettings(el);
+  }
+
+  const releaseDate = new Intl.DateTimeFormat("ru-RU", { dateStyle: "long", timeZone: "UTC" });
+
+  function renderNews() {
+    const el = document.getElementById("screen-news");
+    const updates = [...DWR.RELEASE_NOTES].sort((a, b) => b.date.localeCompare(a.date));
+    el.innerHTML = `
+      <main class="scr-location scr-news">
+        <header class="scr-statusbar">
+          <h1 id="scr-news-title" class="scr-h2" tabindex="-1">Что нового</h1>
+          <button type="button" id="scr-news-back" class="btn">Назад</button>
+        </header>
+        <ol class="scr-news-list" aria-labelledby="scr-news-title" tabindex="0">
+          ${updates.map(({ date, title, changes }) => `
+            <li class="scr-news-entry">
+              <time datetime="${date}">${releaseDate.format(new Date(date))}</time>
+              <div>
+                <h2>${title}</h2>
+                <ul>${changes.map(change => `<li>${change}</li>`).join("")}</ul>
+              </div>
+            </li>`).join("")}
+        </ol>
+      </main>`;
+    const backToMenu = () => {
+      DWR.showScreen("menu");
+      document.getElementById("scr-btn-news").focus();
+    };
+    el.querySelector("#scr-news-back").addEventListener("click", backToMenu);
+    el.querySelector(".scr-news").addEventListener("keydown", event => {
+      if (event.key === "Escape") backToMenu();
+    });
+    el.querySelector("#scr-news-title").focus();
   }
 
   const raidNumbers = new Intl.NumberFormat("ru-RU");
@@ -364,11 +399,15 @@ DWR.Screens = (function () {
 
     const list = entries => entries.length ? `<dl class="scr-stats-list">${entries.join("")}</dl>`
       : '<p class="scr-stats-empty">—</p>';
+    const row = (label, value, detail = false) => {
+      const attr = detail ? ' class="scr-stats-detail"' : "";
+      return `<dt${attr}>${label}</dt><dd${attr}>${value}</dd>`;
+    };
     const damageRows = [...damage].sort((a, b) => (b[1].health + b[1].armor) - (a[1].health + a[1].armor))
-      .map(([skill, amount]) => `<dt>${skillName(skill)}</dt><dd>${combatNumber(amount.health)} ОЗ
-        ${amount.armor ? `<small>+ ${combatNumber(amount.armor)} брони</small>` : ""}</dd>`);
+      .map(([skill, amount]) => row(skillName(skill), `${combatNumber(amount.health)} ОЗ`) +
+        (amount.armor ? row("По броне", `+ ${combatNumber(amount.armor)}`, true) : ""));
     const healingRows = [...healing]
-      .map(([skill, amount]) => `<dt>${skillName(skill)}</dt><dd>${combatNumber(amount)} ОЗ</dd>`);
+      .map(([skill, amount]) => row(skillName(skill), `${combatNumber(amount)} ОЗ`));
     const attacker = DWR.CONFIG.enemies[death?.enemy]?.name ?? "Неизвестный источник";
     const cause = DWR.CONFIG.effects[death?.ability]?.name ?? enemyAttacks[death?.ability] ?? "Урон";
     const redirected = death?.redirectedFrom
@@ -378,10 +417,12 @@ DWR.Screens = (function () {
         <h3>${DWR.CONFIG.heroes[id].name}</h3>
         <h4>Нанесено урона</h4>
         ${list(damageRows)}
-        <h4>Лечение отряда <b>${combatNumber(given)} ОЗ</b></h4>
+        <h4 class="scr-stats-summary"><span>Лечение отряда</span><b>${combatNumber(given)} ОЗ</b></h4>
         ${healingRows.length ? list(healingRows) : ""}
-        <p class="scr-stats-received">Восстановлено герою <b>${combatNumber(received)} ОЗ</b>
-          ${potion ? `<small>Из зелий ${combatNumber(potion)} ОЗ</small>` : ""}</p>
+        <dl class="scr-stats-list scr-stats-received">
+          ${row("Восстановлено герою", `<b>${combatNumber(received)} ОЗ</b>`)}
+          ${potion ? row("Из зелий", `${combatNumber(potion)} ОЗ`, true) : ""}
+        </dl>
         ${death
           ? `<p class="scr-stats-death"><strong>Убийца — ${attacker}</strong><small>${cause}${selected === -1 ? ` · Комната ${death.room}` : ""}</small>${redirected}</p>`
           : `<p class="scr-stats-survived">${alreadyFallen ? "Пал в предыдущей комнате" : "Остался в строю"}</p>`}
@@ -492,6 +533,10 @@ DWR.Screens = (function () {
   // ---------- Публичный API ----------
   return {
     redraw() {
+      if (DWR.currentScreen() === "news") {
+        renderNews();
+        return;
+      }
       renderMenu();
       renderLocation();
       if (!resultsFilled) renderResults(null);

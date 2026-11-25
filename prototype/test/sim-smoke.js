@@ -687,6 +687,9 @@ const tauntBoss = run.enemies[0];
 const { warrior: tauntWarrior, priest: tauntPriest, ranger: tauntRanger } = run.heroes;
 stepFor(run, tauntBoss.def.summon.seconds + 0.1);
 const tauntedFoes = run.enemies.slice(1, 3);
+for (const hero of Object.values(run.heroes)) hero.hp = hero.maxHp = 1000;
+tauntBoss.freezeT = 1e6;
+tauntBoss.summonT = 1e6;
 for (const foe of tauntedFoes) {
   foe.x = tauntRanger.x - 95;
   foe.flanking = true;
@@ -695,7 +698,7 @@ for (const foe of tauntedFoes) {
 }
 S.tick(run, 0);
 check("оба скелета успели начать атаку на лучника до провокации",
-  tauntedFoes.every(foe => foe.attack?.startedOn === tauntRanger));
+  tauntedFoes.every(foe => foe.attack?.targetX === tauntRanger.x));
 tauntWarrior.rage = 24;
 check("провокация доступна изначально и требует 25 ярости",
   State.nodeCount("taunt") === 1 && State.hasSkill("taunt") && run.equipped.has("taunt") &&
@@ -705,16 +708,31 @@ check("провокация расходует 25 ярости, запускае
   S.useInstant(run, "taunt") && tauntWarrior.rage === 25 && S.skillStatus(run, "taunt").left === 25 &&
   run.enemies.every(foe => foe.taunted) && !S.useInstant(run, "taunt"));
 stepFor(run, 0.6);
-check("начатый удар попадает в лучника, смена цели ждёт конца атаки",
-  tauntRanger.hp < tauntRanger.maxHp && tauntedFoes.every(foe => foe.taunted));
+check("мечник прерывает замах ради обхода, а лучник переводит незавершённый выстрел на воина",
+  tauntRanger.hp === tauntRanger.maxHp && tauntedFoes.every(foe => foe.taunted) &&
+  tauntedFoes[0].bypass && run.attacks.some(shot => shot.caster === tauntedFoes[1] && shot.target === tauntWarrior));
 stepFor(run, 0.8);
 check("тыловые мечник и стрелок уходят вглубь сцены даже при живом личе",
   tauntBoss.alive && !tauntWarrior.returnToFormation && tauntedFoes.every(foe => S.bypassFloorOffset(foe) < 0));
 stepFor(run, 4);
-check("оба скелета обходят героев и тратят провокацию на атаки по воину",
-  tauntedFoes.every(foe => foe.x > tauntPriest.x && !foe.taunted && !foe.bypass) &&
+check("оба скелета обходят героев и сохраняют провокацию после первых атак по воину",
+  tauntedFoes.every(foe => foe.x > tauntPriest.x && foe.taunted && !foe.bypass) &&
   run.combatRoom.heroes.warrior.healingReceived === 0 && tauntWarrior.hp < tauntWarrior.maxHp &&
   tauntPriest.hp === tauntPriest.maxHp);
+
+const tankBeforeAdvance = { x: tauntWarrior.x, hp: tauntWarrior.hp };
+const meleeBeforeAdvance = tauntedFoes[0].x;
+run.enemies.find(foe => foe.kind === "skeletonM").alive = false;
+tauntBoss.x += 180;
+stepFor(run, 4);
+check("тыловые враги преследуют воина при продвижении вправо и продолжают бить его",
+  tauntWarrior.x > tankBeforeAdvance.x + 150 && tauntedFoes[0].x > meleeBeforeAdvance + 150 &&
+  tauntedFoes.every(foe => foe.taunted) && tauntWarrior.hp < tankBeforeAdvance.hp &&
+  tauntPriest.hp === tauntPriest.maxHp && tauntRanger.hp === tauntRanger.maxHp);
+tauntWarrior.hp = 1;
+stepFor(run, 4);
+check("после гибели воина враги снова могут атаковать других героев",
+  !tauntWarrior.alive && tauntedFoes.every(foe => !foe.taunted) && tauntPriest.hp < tauntPriest.maxHp);
 
 State.data.coins = 1000;
 check("узлы провокации улучшают её базовые параметры",
@@ -1440,7 +1458,7 @@ try {
   stepFor(run, secondLeftWhelp.def.attack.windup);
   const retargetedShot = run.attacks.find(attack => attack.caster === secondLeftWhelp);
   check("Провокация меняет цель незавершённого замаха тылового дракончика на воина",
-    castingBeforeTaunt && taunted && rightWhelp.taunted && !secondLeftWhelp.taunted &&
+    castingBeforeTaunt && taunted && rightWhelp.taunted && secondLeftWhelp.taunted &&
     retargetedShot?.target === summonTank && !secondLeftWhelp.bypass);
   check("Выпущенный до провокации фаербол сохраняет исходную цель",
     releasedShot?.target === summonArcher && summonArcher.hp < summonArcher.maxHp);
@@ -1451,6 +1469,7 @@ try {
   const secondWave = run.enemies.slice(4);
   check("Повторный призыв меняет сторону двух дракончиков, прежняя провокация на них не действует",
     noEarlyWave && secondWave.length === 3 && secondWave.every(whelp => whelp.noLoot && !whelp.taunted) &&
+    firstWave.every(whelp => whelp.taunted) &&
     secondWave[0].x > arenaWidth && secondWave[1].x < 0 && secondWave[2].x > arenaWidth);
   for (let elapsed = 0; elapsed < 5 && !secondWave[0]?.attack; elapsed += 0.025) S.tick(run, 0.025);
   check("Дракончик с правого края приближается и наводится на переднего героя",
