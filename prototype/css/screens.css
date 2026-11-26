@@ -195,6 +195,45 @@
 .scr-settings-footer span { color: #d2c7ba; font-size: 12px; }
 .scr-settings-credit { color: #e8cb8e; font-size: 12px; text-underline-offset: 2px; }
 .scr-settings-footer .btn { margin-left: auto; }
+.scr-settings-hotkeys { width: 100%; margin-bottom: 18px; }
+.scr-hotkeys { width: min(520px, calc(100vw - 30px)); }
+.scr-hotkeys-help { margin: 14px 0; color: #e0d4c6; font-size: 14px; }
+.scr-hotkey-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(188px, 100%), 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.scr-hotkey-slot {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 5px 6px 5px 12px;
+  border: 1px solid #79604370;
+  border-radius: 8px;
+  background: #10171cb3;
+  color: #e0d4c6;
+  font-size: 14px;
+}
+.scr-hotkey-key {
+  min-height: 34px;
+  padding: 3px 6px;
+  border-color: #796043;
+  color: var(--gold);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.scr-hotkey-key[aria-pressed="true"] {
+  border-color: var(--gold);
+  background: #423321;
+}
+.scr-hotkey-capture { display: flex; align-items: center; gap: 10px; min-height: 42px; }
+.scr-hotkey-status { margin: 0; color: #e0d4c6; font-size: 13px; }
+.scr-hotkey-cancel { min-height: 30px; margin-left: auto; padding: 0 10px; font-size: 13px; }
+.scr-hotkey-cancel[hidden] { display: none; }
 .scr-result-art, .scr-report {
   border: 1px solid var(--edge);
   border-radius: 14px;

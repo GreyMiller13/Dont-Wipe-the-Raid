@@ -5,7 +5,7 @@ window.DWR = window.DWR || {};
 
 DWR.Run = (function () {
   const CV = () => DWR.CONFIG.canvas;
-  const FLOOR = 540;                 // линия пола сцены (совпадает с полом фоновых слайдов, сборка build_sprites.py)
+  const FLOOR = 540;                 // линия пола в координатах боя
   const BOARD = { x: 286, y: 108, w: 960, h: 443, scale: 0.75 };
   const ARROW_SIZE = 72;
   const NEXT = { x: BOARD.x + BOARD.w - 24 - ARROW_SIZE, y: BOARD.y + (BOARD.h - ARROW_SIZE) / 2, w: ARROW_SIZE, h: ARROW_SIZE };
@@ -128,6 +128,7 @@ DWR.Run = (function () {
   }
 
   function curRoom() { return DWR.CONFIG.rooms[R.seq[R.roomIdx]]; }
+  function roomFloorOffset() { return (curRoom().floorY ?? FLOOR) - FLOOR; }
   function chestLocked() {
     return curRoom().chest && !R.chestOpened && !DWR.State.treasureAvailable(R.location);
   }
@@ -186,7 +187,7 @@ DWR.Run = (function () {
 
   function worldPoint(x, y) {
     if (!inRect(x, y, BOARD)) return null;
-    return { x: (x - BOARD.x) / BOARD.scale, y: (y - BOARD.y) / BOARD.scale };
+    return { x: (x - BOARD.x) / BOARD.scale, y: (y - BOARD.y) / BOARD.scale - roomFloorOffset() };
   }
 
   function loadRoom(i) {
@@ -538,12 +539,7 @@ DWR.Run = (function () {
     if (i >= 0) {
       cancelAim(x, y);
       const id = R.tempPanel[i];
-      const skill = DWR.CONFIG.skills[id];
-      if (skill?.type === "instant") {
-        const result = DWR.Sim.useInstant(R.sim, id);
-        if (result === "full") toast("Здоровье отряда уже полное");
-        else if (!result) skillNotice(id);
-      }
+      if (DWR.CONFIG.skills[id]?.type === "instant") useInstantSkill(id);
       return;
     }
     if (R.aim) {
@@ -556,25 +552,47 @@ DWR.Run = (function () {
     if (p && curRoom().chest && !R.chestOpened && inRect(p.x, p.y, R.chestRect)) { openChest(); return; }
   }
 
+  function useInstantSkill(id) {
+    const result = DWR.Sim.useInstant(R.sim, id);
+    if (result === "full") toast("Здоровье отряда уже полное");
+    else if (!result) skillNotice(id);
+  }
+
+  function aimFromSlot(slot, x, y, press = null) {
+    const id = R.tempPanel[slot];
+    const skill = DWR.CONFIG.skills[id];
+    if (!skill || !["targeted", "ally", "ground", "potion"].includes(skill.type) ||
+        (skill.manualWhileAuto === false && R.sim.autoSkills.has(id)) ||
+        (skill.stock && !DWR.Sim.canThrowBomb(R.sim, id)) ||
+        (id === "potion" && R.sim.potionsLeft === 0)) return false;
+    R.aim = { kind: skill.type, id, slot, press };
+    R.hoverTarget = R.potionHover = null;
+    updateCursor(x, y);
+    return true;
+  }
+
+  function onSkillKey(slot, x, y) {
+    if (!R || R.phase !== "room" || R.menu || R.aim?.press) return false;
+    const id = R.tempPanel[slot];
+    if (DWR.CONFIG.skills[id]?.type !== "instant") return aimFromSlot(slot, x, y);
+    cancelAim(x, y);
+    useInstantSkill(id);
+    return true;
+  }
+
   function onDown(x, y) {
     if (!R || R.phase !== "room" || R.menu) return;
     const i = DWR.Panel.slotAt(R, x, y);
     const press = { x, y, moved: false };
     if (i >= 0) {
-      const id = R.tempPanel[i];
-      const skill = DWR.CONFIG.skills[id];
-      if (!skill || !["targeted", "ally", "ground", "potion"].includes(skill.type) ||
-          (skill.manualWhileAuto === false && R.sim.autoSkills.has(id)) ||
-          (skill.stock && !DWR.Sim.canThrowBomb(R.sim, id)) ||
-          (id === "potion" && R.sim.potionsLeft === 0)) return;
-      R.aim = { kind: skill.type, id, slot: i, press };
-    } else {
-      if (R.aim) return;
-      const p = worldPoint(x, y);
-      const item = p && R.items.find(it => it.type === "potion" && it.grounded && nearLoot(p, it));
-      if (!item) return;
-      R.aim = { kind: "floorPotion", item, press };
+      aimFromSlot(i, x, y, press);
+      return;
     }
+    if (R.aim) return;
+    const p = worldPoint(x, y);
+    const item = p && R.items.find(it => it.type === "potion" && it.grounded && nearLoot(p, it));
+    if (!item) return;
+    R.aim = { kind: "floorPotion", item, press };
     R.potionHover = null;
     updateCursor(x, y);
   }
@@ -694,6 +712,9 @@ DWR.Run = (function () {
     ctx.translate(BOARD.x, BOARD.y);
     ctx.scale(BOARD.scale, BOARD.scale);
     drawRoom(ctx);
+    // Бой и ввод используют одну систему координат, фон остаётся привязан к рамке комнаты.
+    ctx.save();
+    ctx.translate(0, roomFloorOffset());
     if (curRoom().chest) drawChest(ctx);
     drawThreats(ctx);
     for (const wave of R.sim.groundWaves) {
@@ -711,6 +732,7 @@ DWR.Run = (function () {
     drawCastBars(ctx);
     drawLoot(ctx);
     drawFx(ctx);
+    ctx.restore();
     drawFade(ctx);
     ctx.restore();
 
@@ -756,7 +778,6 @@ DWR.Run = (function () {
   }
 
   function drawRoom(ctx) {
-    // фон комнаты — слайд пользователя (assets/out/roomN.jpg, пол на FLOOR)
     const room = curRoom();
     const bg = DWR.Assets.img["room" + (room.art ?? room.id)];
     if (bg && bg.width) ctx.drawImage(bg, 0, 0, CV().w, CV().h);
@@ -885,6 +906,12 @@ DWR.Run = (function () {
     const { id } = h;
     const p = unitPose(h);
     if (h.alive) shadow(ctx, h.x, 52);
+    else if (curRoom().floorY !== undefined && p.poseT > 0.7) {
+      ctx.save();
+      ctx.globalAlpha *= (p.poseT - 0.7) / 0.3;
+      shadow(ctx, h.x - h.facing * h.h * 0.45, h.h * 0.43);
+      ctx.restore();
+    }
     const spike = DWR.Sim.spikeElevation(h);
     if (spike.height > 0) DWR.RiftMotion.drawSpike(ctx, h.x, FLOOR, spike.sourceHeight, spike.height);
     const cast = h.attackPose?.spell && h.attackPose;
@@ -2151,7 +2178,7 @@ DWR.Run = (function () {
   return {
     start, frame,
     get state() { return R; },
-    onMouseMove, onDown, onUp, onClick, onContextMenu, cancelAim, dropTargetAt,
+    onMouseMove, onDown, onUp, onClick, onContextMenu, onSkillKey, cancelAim, dropTargetAt,
     _frameCtx: null
   };
 })();

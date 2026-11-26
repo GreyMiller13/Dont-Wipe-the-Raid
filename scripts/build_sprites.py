@@ -85,16 +85,16 @@ def bg_median(a):
 # Решает полупрозрачность тёмных персонажей: пиксели тела НИЗКОГО контраста с фоном
 # остаются непрозрачными, пока они внутри силуэта (не соединены с краем кадра).
 
-def alpha_mask(a, thr_lo=14):
+def alpha_mask(a, thr_lo=14, *, background_seeds=()):
     # thr_lo = «точно фон»: однотонный тёмно-серый ± JPEG-шум. Больше нельзя:
     # тёмная ткань (плащ лучника) связана с фоном низкоконтрастной кромкой,
     # и заливка при высоком пороге ПРОТЕКАЕТ внутрь фигуры (прозрачность, развал на куски).
     bg_color = bg_median(a)
     near_bg = np.abs(a.astype(int) - bg_color).max(axis=2) <= thr_lo
     lab, n = label_runs(near_bg)
-    border = np.unique(np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]]))
-    border = border[border > 0]
-    is_bg = np.isin(lab, border)       # фон и только фон — прозрачен
+    seeds = np.array([lab[y, x] for x, y in background_seeds], dtype=lab.dtype)
+    background = np.unique(np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1], seeds]))
+    is_bg = np.isin(lab, background[background > 0])
     f = np.where(is_bg, 0, 255)
     # мягкий край 1px: внутренность остаётся 255, снаружи — приглушённое перо
     blur = (np.roll(f, 1, 0) + np.roll(f, -1, 0) + np.roll(f, 1, 1) + np.roll(f, -1, 1) + f) // 5
@@ -458,7 +458,9 @@ def save_ranger_skills():
 for name, (fn, source_height, poses) in SHEETS.items():
     source = Image.open(os.path.join(SPR, fn)).convert("RGB")
     rgb = np.asarray(source)
-    alpha = alpha_mask(rgb)
+    # В первой и последней стойках лучника просвет между ног замкнут силуэтом.
+    seeds = ((290, 1100), (2470, 1100)) if name == "ranger" else ()
+    alpha = alpha_mask(rgb, background_seeds=seeds)
     if name == "warrior":
         # На листе воина за фигурами есть серая линия пола и полосы от JPEG.
         neutral = np.ptp(rgb, axis=2) <= 7

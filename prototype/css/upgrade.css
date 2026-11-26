@@ -283,7 +283,7 @@
   position: relative;
   box-sizing: border-box;
   min-height: 114px;
-  padding: 8px 6px;
+  padding: 27px 6px 8px;
   border-radius: 7px;
   display: grid;
   align-content: center;
@@ -303,6 +303,24 @@
   cursor: grab;
 }
 .pe-slot-filled:hover { border-color: var(--gold); }
+.pe-slot-hotkey {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  box-sizing: border-box;
+  min-width: 19px;
+  max-width: calc(100% - 12px);
+  padding: 2px 5px;
+  overflow: hidden;
+  border: 1px solid #71583f;
+  border-radius: 4px;
+  background: #16141c;
+  color: var(--gold);
+  font: 600 11px/1.15 "Segoe UI", sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pe-slot:has(.pe-slot-badge) .pe-slot-hotkey { max-width: calc(100% - 34px); }
 .pe-skill-icon {
   display: block;
   width: 52px;

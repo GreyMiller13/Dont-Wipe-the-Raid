@@ -5,6 +5,10 @@ window.DWR = window.DWR || {};
 DWR.State = (function () {
   const KEY = () => DWR.CONFIG.saveKey;
   const startingPanel = ["heal", "taunt"];
+  const defaultSkillHotkeys = () => Array.from({ length: DWR.CONFIG.skillBar.maxSlots }, (_, i) => {
+    const digit = String((i + 1) % 10);
+    return { code: "Digit" + digit, label: digit };
+  });
   const nodes = new Map(Object.values(DWR.CONFIG.trees).flatMap(tree =>
     tree.branches.flatMap(branch => branch.nodes.map(node => [node.id, node]))));
   // Цены для расчёта возврата в сохранениях без журнала покупок.
@@ -53,7 +57,7 @@ DWR.State = (function () {
       treasuresOpened: {},     // { id локации: открыт ли сундук за первое убийство }
       raidStats: { seconds: 0, coins: 0, runes: 0, starts: 0, win: 0, retreat: 0, wipe: 0,
         locations: {}, active: null, partial: false },
-      settings: { music: 0.7, sound: 0.8 }
+      settings: { music: 0.7, sound: 0.8, skillHotkeys: defaultSkillHotkeys() }
     };
   }
 
@@ -66,9 +70,16 @@ DWR.State = (function () {
         const saved = JSON.parse(raw);
         const defaults = fresh();
         const settings = { ...defaults.settings };
-        for (const key of Object.keys(settings)) {
+        for (const key of ["music", "sound"]) {
           const value = saved.settings?.[key];
           if (Number.isFinite(value)) settings[key] = Math.min(1, Math.max(0, value));
+        }
+        const hotkeys = saved.settings?.skillHotkeys;
+        if (Array.isArray(hotkeys) && hotkeys.length === settings.skillHotkeys.length &&
+            hotkeys.every(key => typeof key?.code === "string" && key.code &&
+              typeof key.label === "string" && key.label) &&
+            new Set(hotkeys.map(key => key.code)).size === hotkeys.length) {
+          settings.skillHotkeys = hotkeys;
         }
         const raidStats = { ...defaults.raidStats, ...saved.raidStats };
         if (saved.started && !saved.raidStats) raidStats.partial = true;
@@ -99,6 +110,21 @@ DWR.State = (function () {
   }
   function reset() {
     data = { ...fresh(), settings: data.settings };
+    save();
+  }
+
+  function setSkillHotkey(slot, key) {
+    const hotkeys = data.settings.skillHotkeys;
+    const previousSlot = hotkeys.findIndex(binding => binding.code === key.code);
+    const switched = previousSlot !== -1 && previousSlot !== slot;
+    if (switched) hotkeys[previousSlot] = hotkeys[slot];
+    hotkeys[slot] = key;
+    save();
+    return switched ? previousSlot : -1;
+  }
+
+  function resetSkillHotkeys() {
+    data.settings.skillHotkeys = defaultSkillHotkeys();
     save();
   }
 
@@ -347,7 +373,7 @@ DWR.State = (function () {
 
   return {
     get data() { return data; },
-    load, save, reset, locationCleared, locationUnlocked, completeLocation, bombStock,
+    load, save, reset, setSkillHotkey, resetSkillHotkeys, locationCleared, locationUnlocked, completeLocation, bombStock,
     locationEnemies, recordEncounters,
     beginRaid, advanceRaidTime, reachRaidBoss, markRaidWipe, finishRaid,
     treasureUnopened, treasureAvailable, openTreasure,

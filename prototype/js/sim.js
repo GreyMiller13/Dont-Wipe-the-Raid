@@ -111,10 +111,8 @@ DWR.Sim = (function () {
     const autoFireball = run.autoSkills.has("fireball");
     const autoTornado = run.autoSkills.has("fireTornado");
     if (!autoFireball && !autoTornado) return;
-    const shield = activeShield(run, priest.x);
-    const rear = !shield && nearestEnemy(run, priest.x, enemy => enemy.x < priest.x && vulnerable(enemy) && acceptsFire(enemy));
+    const { rear, target } = priestFireTarget(run, priest.x);
     if (rear || run.enemies.some(enemy => targetable(enemy) && enemy.x < priest.x)) priest.facing = -1;
-    const target = shield || rear || rangedTarget(run, priest.x, acceptsFire);
     if (!target) return;
     const reserve = autoHeal ? skillStatus(run, "heal").cost : 0;
     const canFireball = autoFireball && priest.mana >= skillStatus(run, "fireball").cost + reserve;
@@ -178,6 +176,12 @@ DWR.Sim = (function () {
     const canHit = enemy => vulnerable(enemy) && include(enemy);
     return activeShield(run, x) ??
       nearestEnemy(run, x, enemy => enemy.flanking && canHit(enemy)) ?? nearestEnemy(run, x, canHit);
+  }
+
+  function priestFireTarget(run, x) {
+    const shield = activeShield(run, x);
+    const rear = !shield && nearestEnemy(run, x, enemy => enemy.x < x && vulnerable(enemy) && acceptsFire(enemy));
+    return { rear, target: shield || rear || rangedTarget(run, x, acceptsFire) };
   }
 
   function enemyTarget(run, enemy) {
@@ -1795,13 +1799,6 @@ DWR.Sim = (function () {
 
   function useGround(run, skillId, x) {
     if (run.over || !inBattle(run) || !Number.isFinite(x) || x < 0 || x > C().canvas.w) return false;
-    if (skillId === "fireTornado") {
-      const priest = run.heroes.priest, direction = castDirection(priest, x);
-      const shield = activeShield(run, priest.x);
-      if (shield) return beginPriestCast(run, skillId, shield.x);
-      if (!run.enemies.some(enemy => vulnerable(enemy) && (enemy.x - priest.x) * direction >= 0)) return false;
-      return beginPriestCast(run, skillId, x);
-    }
     const spec = C().skills[skillId];
     if (spec?.type !== "ground" || !spec.stock || !canThrowBomb(run, skillId)) return false;
     const ranger = run.heroes.ranger;
@@ -1822,6 +1819,10 @@ DWR.Sim = (function () {
       return beginPriestCast(run, skillId);
     }
     if (!inBattle(run)) return false;
+    if (skillId === "fireTornado") {
+      const { target } = priestFireTarget(run, run.heroes.priest.x);
+      return Boolean(target) && beginPriestCast(run, skillId, target.x);
+    }
     const s = C().skills[skillId];
     if (s?.type !== "instant") return false;
     const h = run.heroes[s.owner];

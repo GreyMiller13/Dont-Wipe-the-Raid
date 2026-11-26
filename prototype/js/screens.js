@@ -38,6 +38,7 @@ DWR.Screens = (function () {
         </div>
       </main>
       ${settingsDialog()}
+      ${skillHotkeysDialog()}
       ${started ? newGameDialog() + raidStatsDialog() : ""}`;
 
     const startNew = () => {
@@ -193,9 +194,39 @@ DWR.Screens = (function () {
             ${slider("music", "Музыка")}
             ${slider("sound", "Звуковые эффекты")}
           </fieldset>
+          <button class="btn scr-settings-hotkeys" id="scr-btn-skill-hotkeys" type="button"
+            aria-haspopup="dialog" aria-controls="scr-skill-hotkeys">Горячие клавиши</button>
           <footer class="scr-dialog-footer scr-settings-footer">
             <span>Сохраняется автоматически</span>
             <a class="scr-settings-credit" href="assets/out/music/CREDITS.txt" target="_blank" rel="noopener">Авторы музыки</a>
+            <button class="btn btn-gold">Готово</button>
+          </footer>
+        </form>
+      </dialog>`;
+  }
+
+  function skillHotkeysDialog() {
+    const slots = S.data.settings.skillHotkeys.map((_, i) => `
+      <li class="scr-hotkey-slot">
+        <span>Слот ${i + 1}</span>
+        <button class="btn scr-hotkey-key" type="button" aria-pressed="false"></button>
+      </li>`).join("");
+    return `
+      <dialog class="scr-dialog scr-hotkeys" id="scr-skill-hotkeys" aria-labelledby="scr-hotkeys-title"
+        aria-describedby="scr-hotkeys-help">
+        <form method="dialog">
+          <header class="scr-dialog-header">
+            <h2 class="scr-h2" id="scr-hotkeys-title">Горячие клавиши</h2>
+            <button class="btn scr-dialog-close" aria-label="Закрыть горячие клавиши"></button>
+          </header>
+          <p class="scr-hotkeys-help" id="scr-hotkeys-help">Выберите слот и нажмите клавишу.</p>
+          <ol class="scr-hotkey-list">${slots}</ol>
+          <div class="scr-hotkey-capture">
+            <p class="scr-hotkey-status" role="status"></p>
+            <button class="btn scr-hotkey-cancel" type="button" hidden>Отменить</button>
+          </div>
+          <footer class="scr-dialog-footer">
+            <button class="btn scr-hotkey-reset" type="button">Сбросить</button>
             <button class="btn btn-gold">Готово</button>
           </footer>
         </form>
@@ -218,6 +249,7 @@ DWR.Screens = (function () {
   function bindSettings(menu) {
     const el = menu.querySelector("#scr-settings");
     bindDialog(menu.querySelector("#scr-btn-settings"), el);
+    bindSkillHotkeys(el.querySelector("#scr-btn-skill-hotkeys"), menu.querySelector("#scr-skill-hotkeys"));
     for (const key of ["music", "sound"]) {
       const inp = el.querySelector("#scr-" + key);
       const output = el.querySelector("#scr-" + key + "-val");
@@ -231,6 +263,63 @@ DWR.Screens = (function () {
       });
       if (key === "sound") inp.addEventListener("change", () => DWR.Audio.play("ui"));
     }
+  }
+
+  function bindSkillHotkeys(trigger, dialog) {
+    const buttons = Array.from(dialog.querySelectorAll(".scr-hotkey-key"));
+    const status = dialog.querySelector(".scr-hotkey-status");
+    const cancel = dialog.querySelector(".scr-hotkey-cancel");
+    let activeSlot = null;
+    let capturedCode = null;
+
+    function updateSlots(message = "") {
+      const hotkeys = S.data.settings.skillHotkeys;
+      buttons.forEach((button, i) => {
+        const waiting = i === activeSlot;
+        button.textContent = waiting ? "…" : hotkeys[i].label;
+        button.setAttribute("aria-label", `Слот ${i + 1}. ${waiting ? "Нажмите клавишу" : hotkeys[i].label}`);
+        button.setAttribute("aria-pressed", String(waiting));
+      });
+      cancel.hidden = activeSlot === null;
+      status.textContent = message;
+    }
+
+    bindDialog(trigger, dialog);
+    buttons.forEach((button, i) => button.addEventListener("click", () => {
+      activeSlot = activeSlot === i ? null : i;
+      updateSlots(activeSlot === null ? "" : `Новая клавиша для слота ${i + 1}`);
+    }));
+    cancel.addEventListener("click", () => {
+      buttons[activeSlot].focus();
+      activeSlot = null;
+      updateSlots();
+    });
+    dialog.querySelector(".scr-hotkey-reset").addEventListener("click", () => {
+      activeSlot = null;
+      S.resetSkillHotkeys();
+      updateSlots("Восстановлены клавиши по умолчанию.");
+    });
+    dialog.addEventListener("keydown", event => {
+      if (activeSlot === null && (!event.repeat || !capturedCode)) return;
+      const key = DWR.Input.readSkillKey(event);
+      if (activeSlot === null && key?.code !== capturedCode) return;
+      event.preventDefault();
+      if (event.repeat || event.isComposing || !key) return;
+      capturedCode = key.code;
+      const slot = activeSlot;
+      const swapped = S.setSkillHotkey(slot, key);
+      activeSlot = null;
+      updateSlots(swapped === -1 ? `Слот ${slot + 1} использует ${key.label}.`
+        : `Слоты ${slot + 1} и ${swapped + 1} поменялись клавишами.`);
+    });
+    dialog.addEventListener("keyup", event => {
+      if (capturedCode && DWR.Input.readSkillKey(event)?.code === capturedCode) capturedCode = null;
+    });
+    dialog.addEventListener("close", () => {
+      activeSlot = capturedCode = null;
+      updateSlots();
+    });
+    updateSlots();
   }
 
   // ---------- Экран: выбор локации ----------

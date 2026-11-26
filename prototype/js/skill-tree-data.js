@@ -87,7 +87,7 @@ DWR.SKILL_TREES = {
       upgradeNode("fireballHaste", "Беглое пламя", "−0,3 с к перезарядке фаербола", 70, 4, upgradeStat("fireballHaste", 0.30), "fireDmg"),
       costReduction("fireballCost", "Малая искра", "−1 маны к стоимости фаербола", 1, "fireDmg"),
       upgradeNode("fireballBlast", "Огненная волна", "+3 урона соседним врагам при попадании фаербола", 90, 4, upgradeStat("fireballBlast", 3), "fireDmg", 2),
-      activeNode("fireTornado", "Огненный смерч", "После каста длительностью 2,8 с смерч движется в выбранную сторону до края комнаты и наносит 100 урона каждому врагу на пути. Стоимость — 20 маны. Перезарядка — 22 с. Режим — ручн. / автом.", "fireDmg", 2),
+      activeNode("fireTornado", "Огненный смерч", "Жрица направляет смерч в сторону противников автоматически. После каста длительностью 2,8 с смерч движется до края комнаты и наносит 100 урона каждому врагу на пути. Стоимость — 20 маны. Перезарядка — 22 с. Режим — ручн. / автом.", "fireDmg", 2),
       upgradeNode("fireTornadoDamage", "Пылающий вихрь", "+8 урона «Огненному смерчу»", [180, 1.66], 4, upgradeStat("fireTornadoDamage", 8), "fireTornado"),
       costReduction("fireTornadoCost", "Тлеющий поток", "−2 маны к стоимости «Огненного смерча»", 2, "fireTornado"),
       upgradeNode("fireTornadoHaste", "Цикл пламени", "−2 с к перезарядке «Огненного смерча»", [185, 1.84], 3, upgradeStat("fireTornadoHaste", 2), "fireTornado")

@@ -114,12 +114,15 @@ DWR.PanelEditor = (function () {
     const icon = id => `<img class="pe-skill-icon" src="${DWR.Assets.iconUrl(id)}" alt="" draggable="false">`;
 
     const slots = data.panel.map((item, i) => {
+      const hotkey = esc(data.settings.skillHotkeys[i].label);
+      const keycap = `<kbd class="pe-slot-hotkey" title="${hotkey}">${hotkey}</kbd>`;
       if (item === null) {
-        return `<div class="pe-slot pe-slot-empty" data-slot="${i}">Свободно</div>`;
+        return `<div class="pe-slot pe-slot-empty" data-slot="${i}">${keycap}<span>Свободно</span></div>`;
       }
       const sk = DWR.CONFIG.skills[item];
       return `<button class="pe-slot pe-slot-filled" draggable="true" data-slot="${i}" data-drag-skill="${item}"
-        onclick="DWR.PanelEditor._remove(${i})" aria-label="Убрать: ${esc(sk.name)}">
+        onclick="DWR.PanelEditor._remove(${i})" aria-label="Убрать ${esc(sk.name)}. Клавиша ${hotkey}">
+        ${keycap}
         ${icon(item)}
         <span class="pe-slot-name">${esc(sk.name)}</span>
         ${Object.hasOwn(stocks, item) ? (stocks[item] ? `<span class="pe-slot-badge">×${stocks[item]}</span>` : '<span class="pe-slot-owner">Подбирается в бою</span>')

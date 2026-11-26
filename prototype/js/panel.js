@@ -94,6 +94,16 @@ DWR.Panel = (function () {
     ctx.fillText(hint, x, 593);
   }
 
+  function drawHotkey(ctx, slot, label) {
+    ctx.font = "600 10px Segoe UI";
+    const textWidth = Math.min(26, ctx.measureText(label).width);
+    ctx.beginPath(); ctx.roundRect(slot.x + 4, slot.y + 4, Math.max(15, textWidth + 6), 15, 4);
+    ctx.fillStyle = "#16141c"; ctx.fill();
+    ctx.strokeStyle = "#71583f"; ctx.stroke();
+    ctx.textAlign = "left"; ctx.fillStyle = "#ffd092";
+    ctx.fillText(label, slot.x + 7, slot.y + 15, 26);
+  }
+
   function draw(ctx, run) {
     ctx.beginPath(); ctx.roundRect(34, 568, 1212, 126, 12);
     ctx.fillStyle = "#191a23"; ctx.fill();
@@ -105,6 +115,7 @@ DWR.Panel = (function () {
     ctx.fillText("Панель навыков", 55, 593);
     drawSkillHint(ctx, run, hoveredSkill);
 
+    const hotkeys = DWR.State.data.settings.skillHotkeys;
     for (let i = 0; i < run.tempPanel.length; i++) {
       const r = slotRect(run, i), id = run.tempPanel[i];
       const enabled = id && slotUsable(run, id);
@@ -117,6 +128,7 @@ DWR.Panel = (function () {
       if (!id) ctx.setLineDash([4, 4]);
       ctx.stroke();
       ctx.setLineDash([]);
+      drawHotkey(ctx, r, hotkeys[i].label);
       ctx.textAlign = "center";
       const cx = r.x + r.w / 2;
       if (!id) {

@@ -414,17 +414,17 @@ check("сбитый замах фаербола отменяет снаряд, �
   !run.combatRoom.heroes.priest.damage.fireball);
 
 run = prepareForge(rangedRoom);
-const [behind, closer, farther] = run.enemies;
-behind.x = 40;
-closer.x = 560; farther.x = 1000;
+const [otherSide, closer, farther] = run.enemies;
+otherSide.x = 560;
+closer.x = 95; farther.x = 40;
 closer.hp = closer.maxHp = farther.hp = farther.maxHp = 140;
 const health = run.enemies.map(enemy => enemy.hp);
-const castRight = S.useGround(run, "fireTornado", closer.x);
+const castTornado = S.useInstant(run, "fireTornado");
 stepFor(run, 2);
-check("смерч долго кастуется и расходует большой запас маны", castRight && run.heroes.priest.attackPose?.spell === "fireTornado" &&
+check("ручной смерч начинает каст без выбранной цели и расходует ману", castTornado && run.heroes.priest.attackPose?.spell === "fireTornado" &&
   run.heroes.priest.mana < 3 && !run.tornadoes.length && run.enemies.every((enemy, index) => enemy.hp === health[index]));
 stepFor(run, 3);
-check("смерч движется вправо и наносит каждому врагу на пути 100 базового урона один раз", skills.fireTornado.dmg === 100 && near(behind.hp, health[0]) &&
+check("ручной смерч разворачивается к тыловым врагам и наносит каждому на пути 100 урона один раз", skills.fireTornado.dmg === 100 && near(otherSide.hp, health[0]) &&
   near(closer.hp, health[1] - skills.fireTornado.dmg) && near(farther.hp, health[2] - skills.fireTornado.dmg) && !run.tornadoes.length);
 
 run = prepareForge(rangedRoom);
@@ -1124,7 +1124,7 @@ try {
     immuneFire.hp === immuneFire.maxHp && immuneBoss.hp === immuneBoss.maxHp &&
     near(resistant.hp, resistant.maxHp - skills.fireball.dmg / 2) && near(unresistant.hp, unresistant.maxHp - 10));
   run.heroes.priest.mana = skills.fireTornado.cost;
-  const tornadoStarted = S.useGround(run, "fireTornado", unresistant.x);
+  const tornadoStarted = S.useInstant(run, "fireTornado");
   stepFor(run, 4.5);
   check("смерч игнорирует обе огненные формы, наносит объединённому боссу 50% и земляному обычный урон",
     tornadoStarted && immuneFire.hp === immuneFire.maxHp && immuneBoss.hp === immuneBoss.maxHp &&

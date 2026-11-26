@@ -36,7 +36,7 @@ DWR.Assets = (function () {
   function assetUrl(src) {
     const revision = /^\.\.\/backgrounds\/dragon-city-\d{2}\.webp$/.test(src) ? cityVersion ?? version
       : src.startsWith("menu-") ? menuVersion ?? version
-      : /^(warrior|ranger|priest)-/.test(src) ? heroVersion ?? version : version;
+      : /^(warrior|ranger|priest)(?:-|\.png$)/.test(src) ? heroVersion ?? version : version;
     return DIR + src + (revision ? "?v=" + encodeURIComponent(revision) : "");
   }
   const iconFile = id => "skills/" + id + ".webp";
