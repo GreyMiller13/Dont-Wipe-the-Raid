@@ -245,6 +245,7 @@ DWR.CONFIG = {
   },
   effects: {
     healWard: { name: "Покров света", damageTakenMultiplier: 0.86, dispelBuff: true, icon: "icon-heal.png" },
+    hunterMark: { name: "Метка охотника", color: "#ff6a65", icon: "skills/hunterMark.webp" },
     healBarrier: { name: "Последний свет", duration: 3, dispelBuff: true, color: "#c9e9ff" },
     boneFury: { name: "Некротическое усиление", duration: 5, damageMultiplier: 1.25, dispelBuff: true, icon: "status-bone-fury.png" },
     stunned: { name: "Оглушение", duration: 4, dispelPriority: 4, color: "#ffd98d" },
@@ -295,6 +296,8 @@ DWR.CONFIG = {
     fireball: { name: "Фаербол", owner: "priest", type: "targeted", res: "mana", cost: 3, auto: true, dmg: 20, cooldown: 4.2, release: 0.54, flight: 0.38 },
     fireTornado: { name: "Огненный смерч", owner: "priest", type: "instant", res: "mana", cost: 20, auto: true,
       dmg: 100, cooldown: 22, castTime: 2.8, recovery: 0.48, speed: 610 },
+    hunterMark: { name: "Метка охотника", owner: "ranger", type: "targeted", innate: true, icon: "cursor-target.png",
+      cost: 0, res: "focus", damageBonus: 0.15, durSec: 5, cooldown: 18 },
     multishot: { name: "Мультивыстрел", owner: "ranger", type: "auto", cost: 10, res: "focus", auto: true, arrowDamage: 0.60, targets: 3,
       focusRegenMultiplier: 0.5, focusOnKillMultiplier: 0.2 },
     preciseShot: { name: "Меткий выстрел", owner: "ranger", type: "targeted", cost: 60, res: "focus", dmg: 50, cooldown: 8,
@@ -309,6 +312,7 @@ DWR.CONFIG = {
   // --- Лут и экономика ---
   loot: {
     coinPerGoblin: 4, coinPerBoss: 40, coinPerChest: 60,
+    victoryTrophyRates: [0, 15, 25, 35],
     potionChanceBase: 0.04,        // +2 п. п. за ранг «Зельеварения» (до 10%)
     potionHealBase: 40             // +20 за уровень potionStr
   },

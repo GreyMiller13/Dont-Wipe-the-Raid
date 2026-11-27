@@ -1,4 +1,4 @@
-// DWR :: screens.js — DOM-экраны: меню, журнал обновлений, настройки, выбор локации, итоги.
+// DWR :: screens.js — DOM-экраны: меню, вступление, журнал обновлений, настройки, выбор локации, итоги.
 // Контракт: DWR.Screens.redraw(), DWR.Screens.showResults(r).
 "use strict";
 window.DWR = window.DWR || {};
@@ -22,6 +22,7 @@ DWR.Screens = (function () {
     const el = document.getElementById("screen-menu");
     if (!el) return;
     const started = S.data.started === true;
+    const hasPrologue = Boolean(document.getElementById("screen-prologue"));
     el.innerHTML = `
       <main class="scr-cover">
         <div class="scr-cover-copy">
@@ -41,16 +42,21 @@ DWR.Screens = (function () {
       ${skillHotkeysDialog()}
       ${started ? newGameDialog() + raidStatsDialog() : ""}`;
 
+    const continueGame = () => {
+      if (hasPrologue && S.data.prologuePending) DWR.showScreen("prologue");
+      else returnToCamp();
+    };
     const startNew = () => {
       S.reset();
       S.data.started = true;
+      S.data.prologuePending = hasPrologue;
       S.save();
-      returnToCamp();
+      continueGame();
     };
 
     const newButton = el.querySelector("#scr-btn-new");
     if (started) {
-      el.querySelector("#scr-btn-continue").addEventListener("click", returnToCamp);
+      el.querySelector("#scr-btn-continue").addEventListener("click", continueGame);
       bindDialog(el.querySelector("#scr-btn-stats"), el.querySelector("#scr-raid-stats"));
       const confirm = el.querySelector("#scr-confirm-new");
       bindDialog(newButton, confirm);
@@ -61,6 +67,22 @@ DWR.Screens = (function () {
     } else newButton.addEventListener("click", startNew);
     el.querySelector("#scr-btn-news").addEventListener("click", () => DWR.showScreen("news"));
     bindSettings(el);
+  }
+
+  function renderPrologue() {
+    const el = document.getElementById("screen-prologue");
+    el.innerHTML = `
+      <main class="scr-prologue" aria-label="Вступление" tabindex="-1">
+        <img src="assets/backgrounds/guild-prologue.webp?v=5" width="2340" height="1572"
+          alt="У доски заданий гильдии воин замечает объявление о награде за Лича. К нему подходят лучник и жрица. Трое отправляются мимо деревни к входу в Мрачное подземелье.">
+        <button class="btn btn-gold" type="button">Начать приключение</button>
+      </main>`;
+    el.querySelector("button").addEventListener("click", () => {
+      S.data.prologuePending = false;
+      S.save();
+      returnToCamp();
+    });
+    el.querySelector("main").focus();
   }
 
   const releaseDate = new Intl.DateTimeFormat("ru-RU", { dateStyle: "long", timeZone: "UTC" });
@@ -572,7 +594,7 @@ DWR.Screens = (function () {
     const titles = { win: "Победа!", wipe: "Отряд пал…", retreat: "Отступление", explored: "Отряд дошёл до зала награды" };
     const reason = result?.reason || "retreat";
     const title = result?.treasureOnly && reason === "win" ? "Награда получена" : titles[result?.reason] || "Забег завершён";
-    const { coins = 0, runes = 0, roomsCleared = 0, roomsTotal = 0, roomId = 1, location = "dungeon",
+    const { coins = 0, runes = 0, victoryTrophies = 0, roomsCleared = 0, roomsTotal = 0, roomId = 1, location = "dungeon",
       party = [], combatReports = [] } = result || {};
     const locations = DWR.CONFIG.locations;
     const nextId = Object.keys(locations).find(id => locations[id].unlockAfter === location);
@@ -601,6 +623,7 @@ DWR.Screens = (function () {
           <div class="scr-results-rewards">
             <div><img src="assets/out/coin.png" alt=""><span><b>${coins}</b>Монеты</span></div>
             <div class="scr-result-runes"><img src="assets/out/rune.png" alt=""><span><b>${runes}</b>Руны</span></div>
+            ${victoryTrophies > 0 ? `<small class="scr-result-trophies">«Трофеи победителя» +${raidNumbers.format(victoryTrophies)}</small>` : ""}
           </div>
           <div class="scr-result-roster" aria-label="Состояние отряда">${roster}</div>
           <div class="scr-result-actions">
@@ -622,6 +645,10 @@ DWR.Screens = (function () {
   // ---------- Публичный API ----------
   return {
     redraw() {
+      if (DWR.currentScreen() === "prologue") {
+        renderPrologue();
+        return;
+      }
       if (DWR.currentScreen() === "news") {
         renderNews();
         return;

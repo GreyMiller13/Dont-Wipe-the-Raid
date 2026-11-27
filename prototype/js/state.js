@@ -4,7 +4,7 @@ window.DWR = window.DWR || {};
 
 DWR.State = (function () {
   const KEY = () => DWR.CONFIG.saveKey;
-  const startingPanel = ["heal", "taunt"];
+  const startingPanel = ["heal", "taunt", "hunterMark"];
   const defaultSkillHotkeys = () => Array.from({ length: DWR.CONFIG.skillBar.maxSlots }, (_, i) => {
     const digit = String((i + 1) % 10);
     return { code: "Digit" + digit, label: digit };
@@ -40,6 +40,7 @@ DWR.State = (function () {
   function fresh() {
     return {
       started: false,          // true после «Новой игры»
+      prologuePending: false,  // true, пока игрок не закрыл вступление новой игры
       coins: 0,
       runes: DWR.CONFIG.startingRunes,
       upgrades: {},            // { nodeId: куплено раз }
@@ -282,7 +283,8 @@ DWR.State = (function () {
       const count = nodeCount(node.id);
       if (!count) continue;
       const [base, mul] = legacySkillPrices[node.id] ?? [node.base, node.mul];
-      const prices = legacyReductions.has(node.id) ? legacyReductionPrices : node.prices;
+      const prices = legacyReductions.has(node.id) ? legacyReductionPrices
+        : node.id === "chestCoins" ? undefined : node.prices;
       const pricedNode = { ...node, base, mul, prices };
       for (let rank = 1; rank <= count; rank++) {
         invested[DWR.skillRankCurrency(pricedNode, rank)] += DWR.skillRankPrice(pricedNode, rank);
@@ -295,14 +297,16 @@ DWR.State = (function () {
     const cost = Math.ceil(100 * 1.25 ** data.skillResets);
     const hasPurchases = [...nodes.values()].some(node => data.upgrades[node.id] > 0 &&
       !DWR.CONFIG.skills[DWR.nodeHeroSkill(node)]?.innate);
-    return { cost, invested: treeInvestment(), hasPurchases, affordable: data.coins >= cost };
+    const purchasedRunes = stats().purchasedRunes ?? 0;
+    return { cost, invested: treeInvestment(), purchasedRunes, hasPurchases, affordable: data.coins >= cost };
   }
 
   function resetSkills() {
-    const { cost, invested, hasPurchases, affordable } = skillResetInfo();
+    const { cost, invested, purchasedRunes, hasPurchases, affordable } = skillResetInfo();
     if (!hasPurchases || !affordable) return false;
     data.coins += invested.coins - cost;
-    data.runes += invested.runes;
+    // Сначала возвращаем руны, потраченные на навыки, затем отменяем покупки рун.
+    data.runes += invested.runes - purchasedRunes;
     data.upgrades = {};
     data.upgradeSpent = { coins: 0, runes: 0 };
     data.skillResets++;
@@ -315,7 +319,7 @@ DWR.State = (function () {
 
   function buyNode(id) {
     if (!nodeBuyable(id)) return false;
-    const { stat, unlockSkill } = nodeDef(id).effect;
+    const { stat, add, unlockSkill } = nodeDef(id).effect;
     const alreadyUnlocked = unlockSkill && hasSkill(unlockSkill);
     const currency = nodeCurrency(id), price = nodePrice(id);
     data.upgradeSpent = treeInvestment();
@@ -323,6 +327,7 @@ DWR.State = (function () {
     data.upgradeSpent[currency] += price;
     data.upgrades[id] = nodeCount(id) + 1;
     if (stat === "panelSlots") resizePanel();
+    if (stat === "purchasedRunes") data.runes += add;
     if (unlockSkill && !alreadyUnlocked && hasSkill(unlockSkill) && !data.panel.includes(unlockSkill)) {
       const slot = data.panel.indexOf(null);
       if (slot !== -1) data.panel[slot] = unlockSkill;

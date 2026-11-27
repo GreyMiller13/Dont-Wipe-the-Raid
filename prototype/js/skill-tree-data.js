@@ -15,8 +15,8 @@ const masteryNode = (id, name, desc, price, effect, parent, requiredRank) =>
 const activeNode = (id, name, desc, parent = null, requiresLevel = 1) =>
   upgradeNode(id, name, desc, 0, 1, { unlockSkill: id, unlockAt: 1 }, parent, requiresLevel);
 const costReduction = (id, name, desc, add, parent, max = 2) => ({
-  ...upgradeNode(id, name, desc, [500, 8], max, upgradeStat(id, add), parent),
-  prices: Array.from({ length: max }, (_, index) => index === 0 ? 500 : Math.round(4000 * 1.75 ** (index - 1)))
+  ...upgradeNode(id, name, desc, 500, max, upgradeStat(id, add), parent),
+  prices: [500, 1500, 3000].slice(0, max)
 });
 
 // Внутри ветки parent задаёт связь, requiresLevel — порог покупки дочернего узла.
@@ -116,6 +116,12 @@ DWR.SKILL_TREES = {
     ] }
   ] },
   ranger: { name: "Лучник", branches: [
+    { id: "hunterMark", name: "Метка охотника", nodes: [
+      activeNode("hunterMark", "Метка охотника", "Выбранный противник получает на 15% больше урона от отряда в течение 5 с. Действует на боссов. Без расхода фокуса. Перезарядка — 18 с. Режим — только ручн."),
+      upgradeNode("hunterMarkDamage", "Уязвимая цель", "+1 процентный пункт к урону по отмеченной цели за ранг. Максимум — +20%.", 65, 5, upgradeStat("hunterMarkDamage", 0.01), "hunterMark"),
+      upgradeNode("hunterMarkDuration", "Стойкая метка", "+0,5 с к длительности метки за ранг. Максимум — 7 с.", 55, 4, upgradeStat("hunterMarkDuration", 0.5), "hunterMark"),
+      upgradeNode("hunterMarkHaste", "Быстрая метка", "−1 с к перезарядке метки за ранг. Минимум — 15 с.", 85, 3, upgradeStat("hunterMarkHaste", 1), "hunterMark")
+    ] },
     { id: "shoot", name: "Стрельба", nodes: [
       upgradeNode("rDmg", "Урон стрел", "+1,5 к урону автоатаки", 17, 10, upgradeStat("rDmg", 1.5)),
       masteryNode("rDmgMastery", "Кованые наконечники", "+3 к урону автоатаки лучника", 800, upgradeStat("rDmg", 3), "rDmg", 10),
@@ -161,7 +167,9 @@ DWR.SKILL_TREES = {
     { id: "bounty", name: "Трофеи", nodes: [
       upgradeNode("raidCoins", "Горсть монет", "+8% к базовой награде с обычных врагов. Доли монет суммируются за рейд", 70, 5, upgradeStat("raidCoins", 8)),
       upgradeNode("bossCoins", "Награда за босса", "+3 монеты из босса", 35, 4, upgradeStat("bossCoins", 3), "raidCoins", 2),
-      upgradeNode("chestCoins", "Находка в сундуке", "+6 монет в сундуке за первую победу", 18, 3, upgradeStat("chestCoins", 6), "raidCoins")
+      // Идентификатор узла сохраняет купленные ранги «Находки в сундуке».
+      { ...upgradeNode("chestCoins", "Трофеи победителя", "За каждый завершённый победой рейд добавляет 15%, 25% или 35% от базовой добычи с побеждённых врагов и босса. Бонус начисляется в итогах рейда.", 90, 3, upgradeStat("victoryTrophyRank", 1), "raidCoins"),
+        prices: [90, 180, 330] }
     ] },
     { id: "contract", name: "Оплата за рейд", nodes: [
       upgradeNode("roomCoins", "Плата за зачистку", "+1 монета сразу после зачистки обычной боевой комнаты", 62, 4, upgradeStat("roomCoins", 1)),
@@ -173,6 +181,10 @@ DWR.SKILL_TREES = {
     ] },
     { id: "loadout", name: "Снаряжение", nodes: [
       upgradeNode("panelSlots", "Дополнительный слот", "+1 ячейка на панели навыков. Максимум — 10 ячеек", [120, 1.55], 5, upgradeStat("panelSlots", 1))
+    ] },
+    { id: "runes", name: "Руны", nodes: [
+      { ...upgradeNode("purchasedRunes", "Руны навыков", "+1 руна за каждую покупку. Всего можно купить 3 руны.", 1000, 3, upgradeStat("purchasedRunes", 1)),
+        prices: [1000, 2500, 4000] }
     ] }
   ] }
 };

@@ -39,7 +39,7 @@ DWR.Assets = (function () {
       : /^(warrior|ranger|priest)(?:-|\.png$)/.test(src) ? heroVersion ?? version : version;
     return DIR + src + (revision ? "?v=" + encodeURIComponent(revision) : "");
   }
-  const iconFile = id => "skills/" + id + ".webp";
+  const iconFile = id => DWR.CONFIG.skills[id]?.icon ?? "skills/" + id + ".webp";
   function done() { ready = true; cbs.splice(0).forEach(cb => cb()); }
   const artIds = rooms => new Set(rooms.map(room => room.art ?? room.id));
   const roomFile = art => typeof art === "string" ? "../backgrounds/" + art + ".webp" : "room" + art + ".jpg";

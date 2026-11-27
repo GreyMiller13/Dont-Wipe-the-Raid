@@ -16,7 +16,7 @@ window.DWR = window.DWR || {};
       const el = document.getElementById("screen-" + id);
       if (el) el.classList.add("active");
       // Экраны сами перерисовывают содержимое при показе (хук redraw, если есть)
-      const mod = { menu: "Screens", news: "Screens", location: "Screens", bestiary: "Bestiary",
+      const mod = { menu: "Screens", prologue: "Screens", news: "Screens", location: "Screens", bestiary: "Bestiary",
                     upgrade: "Upgrade", panel: "PanelEditor", results: "Screens" }[id];
       if (mod && DWR[mod] && typeof DWR[mod].redraw === "function") DWR[mod].redraw();
     } else if (DWR.Run && DWR.Run.onEnter) DWR.Run.onEnter();

@@ -14,7 +14,7 @@ DWR.Panel = (function () {
   const LABEL = { powerStrike: "Удар", block: "Блок", taunt: "Провокация", multishot: "Мультивыстрел",
     preciseShot: "Меткий", heal: "Лечение", fireball: "Фаербол", potion: "Зелье",
     dispel: "Рассеивание", massHeal: "Масс. лечение", fireTornado: "Смерч", sacrifice: "Жертвенность", bomb: "Бомба",
-    noiseBomb: "Шумовая бомба", righteousFury: "Праведная ярость" };
+    noiseBomb: "Шумовая бомба", righteousFury: "Праведная ярость", hunterMark: "Метка" };
   const skillLabel = id => LABEL[id] ?? DWR.CONFIG.skills[id]?.name ?? id;
 
   function slotRect(run, i) {
@@ -79,13 +79,15 @@ DWR.Panel = (function () {
     const effect = DWR.Sim.skillEffect(run.sim, id, aim ? run.hoverTarget : null);
     let x = 218;
     if (effect) {
-      const amount = effectNumber.format(effect.amount);
+      const mark = id === "hunterMark";
+      const amount = effectNumber.format(mark ? effect.damageBonus * 100 : effect.amount);
       const suffix = id === "multishot" ? " за стрелу" : id === "bomb" || id === "fireTornado" ? " на цель" : "";
-      const value = effect.damage ? `${amount} урона${suffix}`
+      const value = mark ? `+${amount}% урона отряда · ${effectNumber.format(effect.duration)} с`
+        : effect.damage ? `${amount} урона${suffix}`
         : id === "massHeal" ? `${amount} ОЗ каждому герою` : `восстанавливает ${amount} ОЗ`;
       const label = `${skill.name} · ${value}`;
       ctx.font = "600 13px Segoe UI";
-      ctx.fillStyle = effect.damage ? "#ffd092" : "#aee3b6";
+      ctx.fillStyle = mark ? DWR.CONFIG.effects.hunterMark.color : effect.damage ? "#ffd092" : "#aee3b6";
       ctx.fillText(label, x, 593);
       x += ctx.measureText(label).width + 18;
     }
@@ -160,7 +162,8 @@ DWR.Panel = (function () {
       const detail = id === "potion" ? "×" + run.sim.potionsLeft
         : skill.stock ? "×" + DWR.Sim.bombCharges(run.sim, id)
         : timing.frozen ? "Заморозка" : timing.stunned ? "Оглушение" : timing.impaled ? "На колу"
-        : timing.left > 0 && skill.type !== "auto" ? cooldownLabel(timing.left) : timing.cost + " · " + RES_NAME[skill.res];
+        : timing.left > 0 && skill.type !== "auto" ? cooldownLabel(timing.left)
+        : timing.cost === 0 ? "Без затрат" : timing.cost + " · " + RES_NAME[skill.res];
       ctx.fillText(detail, cx, r.y + 69);
     }
   }

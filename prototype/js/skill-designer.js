@@ -8,6 +8,9 @@
   const key = "dwr_skill_designer_v1";
   const sourceNodes = new Map(Object.values(source).flatMap(tree =>
     tree.branches.flatMap(branch => branch.nodes.map(node => [node.id, node]))));
+  const addedBranches = [["raid", "runes"], ["ranger", "hunterMark"]].map(([owner, id]) =>
+    [owner, source[owner].branches.find(branch => branch.id === id)]);
+  const addedNodes = new Set(addedBranches.flatMap(([, branch]) => branch.nodes.map(node => node.id)));
   const stats = new Map([...sourceNodes.values()].filter(node => node.effect.stat)
     .map(node => [node.effect.stat, node.name]));
   const unlocks = Object.entries(DWR.CONFIG.skills);
@@ -40,7 +43,7 @@
     el("notice").dataset.error = String(isError);
   }
 
-  function validate(data, allowMissingMasteries = false) {
+  function validate(data, allowOlderDraft = false) {
     if (!object(data) || Object.keys(data).length !== owners.length) throw Error("Нужны разделы воина, жрицы, лучника и рейда.");
     const ids = new Set();
     for (const ownerId of owners) {
@@ -63,7 +66,10 @@
             throw Error(`Ручные цены навыка «${node.name}» должны быть целыми неотрицательными числами.`);
           }
           const effect = node.effect;
-          if (!object(effect) || (effect.stat && (!stats.has(effect.stat) || !Number.isFinite(effect.add)))) throw Error(`Проверьте эффект навыка «${node.name}».`);
+          const legacyChest = allowOlderDraft && node.id === "chestCoins" && effect?.stat === "chestCoins";
+          if (!object(effect) || (effect.stat && ((!stats.has(effect.stat) && !legacyChest) || !Number.isFinite(effect.add)))) {
+            throw Error(`Проверьте эффект навыка «${node.name}».`);
+          }
           if (effect.unlockSkill && (!unlocks.some(([id]) => id === effect.unlockSkill) ||
             !validRank(effect.unlockAt ?? node.max) || (effect.unlockAt ?? node.max) > node.max)) throw Error(`Проверьте ранг открытия навыка «${node.name}».`);
           if (DWR.nodeHeroSkill(node) && (node.max !== 1 || effect.stat)) {
@@ -85,7 +91,8 @@
         }
       }
     }
-    if ([...sourceNodes.values()].some(node => !ids.has(node.id) && !(allowMissingMasteries && node.tier === 2))) {
+    if ([...sourceNodes.values()].some(node => !ids.has(node.id) &&
+      !(allowOlderDraft && (node.tier === 2 || addedNodes.has(node.id))))) {
       throw Error("В файле отсутствуют навыки текущей версии игры.");
     }
   }
@@ -96,8 +103,21 @@
     validate(file.trees, true);
     const branches = new Map(Object.values(file.trees).flatMap(tree =>
       tree.branches.flatMap(branch => branch.nodes.map(node => [node.id, branch]))));
+    const trophies = branches.get("chestCoins").nodes.find(node => node.id === "chestCoins");
+    if (trophies.effect.stat === "chestCoins") {
+      const { name, desc, base, mul, prices, effect } = copy(sourceNodes.get("chestCoins"));
+      Object.assign(trophies, { name, desc, base, mul, prices, effect });
+    }
     for (const node of sourceNodes.values()) {
       if (node.tier === 2 && !branches.has(node.id)) branches.get(node.parent).nodes.push(copy(node));
+    }
+    for (const [owner, group] of addedBranches) {
+      const missing = group.nodes.filter(node => !branches.has(node.id));
+      if (!missing.length) continue;
+      const tree = file.trees[owner];
+      const existing = tree.branches.find(branch => branch.id === group.id);
+      if (existing) existing.nodes.push(...copy(missing));
+      else tree.branches.push({ id: group.id, name: group.name, nodes: copy(missing) });
     }
     return file.trees;
   }

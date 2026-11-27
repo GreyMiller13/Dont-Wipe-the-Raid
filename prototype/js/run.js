@@ -117,7 +117,7 @@ DWR.Run = (function () {
       location, treasureOnly, seq: roomSeq(location, treasureOnly), roomIdx: 0,
       phase: "fadein", phaseT: 0,          // fadein | room | fadeout | wipeDelay
       items: [], floaters: [], auras: [], explosions: [], beams: [], meleeImpacts: [], deaths: new Map(), landingLoot: new Set(),
-      runCoins: 0, runRunes: 0, coinBonusCarry: 0, tempPanel,
+      runCoins: 0, runRunes: 0, baseEnemyLoot: 0, coinBonusCarry: 0, tempPanel,
       chestOpened: false, chestRect: { x: 532, y: FLOOR - 132, w: 170, h: 132 },
       menu: null,                           // null | {confirm:false} — открытое бургер-меню (пауза)
       aim: null,                            // press задан, пока ЛКМ удерживается на пути от слота или зелья
@@ -212,11 +212,17 @@ DWR.Run = (function () {
 
   // --- Завершение забега ---
   function finalize(reason) {
-    if (reason === "win" && !R.treasureOnly) R.runCoins += R.sim.stats.raidVictoryCoins;
+    let victoryTrophies = 0;
+    if (reason === "win" && !R.treasureOnly) {
+      const rates = DWR.CONFIG.loot.victoryTrophyRates;
+      const rank = Math.min(Math.floor(R.sim.stats.victoryTrophyRank ?? 0), rates.length - 1);
+      victoryTrophies = Math.round(R.baseEnemyLoot * (rates[rank] ?? 0) / 100);
+      R.runCoins += R.sim.stats.raidVictoryCoins + victoryTrophies;
+    }
     DWR.State.finishRaid(reason === "explored" ? null : reason, R.runCoins);
     const currentCleared = curRoom().chest ? R.chestOpened : !DWR.Sim.inBattle(R.sim) && !hasEscapingBoss();
     DWR.showResults({
-      reason, coins: R.runCoins, runes: R.runRunes,
+      reason, coins: R.runCoins, runes: R.runRunes, victoryTrophies,
       roomsCleared: R.roomIdx + Number(currentCleared), roomsTotal: R.seq.length,
       roomId: curRoom().id, location: R.location, treasureOnly: R.treasureOnly,
       combatReports: R.sim.combatReports,
@@ -233,10 +239,11 @@ DWR.Run = (function () {
     const loot = DWR.CONFIG.loot, stats = R.sim.stats;
     const local = locationLoot();
     const piles = e.boss ? 8 : 4;
+    const base = e.boss ? (local?.boss ?? loot.coinPerBoss) : (local?.normal ?? loot.coinPerGoblin);
+    R.baseEnemyLoot += base;
     let value;
-    if (e.boss) value = (local?.boss ?? loot.coinPerBoss) + stats.bossCoins;
+    if (e.boss) value = base + stats.bossCoins;
     else {
-      const base = local?.normal ?? loot.coinPerGoblin;
       // Остаток хранится в сотых долях монеты между комнатами одного рейда.
       const bonus = R.coinBonusCarry + base * stats.raidCoins;
       value = base + Math.floor(bonus / 100);
@@ -510,7 +517,7 @@ DWR.Run = (function () {
       target = R.sim.enemies.find(e => !e.def.dragon && underCursor(e)) ?? target;
     }
     const owner = DWR.CONFIG.skills[R.aim?.id]?.owner;
-    if (!target || !owner) return target ?? null;
+    if (!target || !owner || R.aim?.id === "hunterMark") return target ?? null;
     const redirected = DWR.Sim.redirectHeroAttack(R.sim, R.sim.heroes[owner], target);
     return allowed(redirected) ? redirected : null;
   }
@@ -678,7 +685,7 @@ DWR.Run = (function () {
     DWR.Audio.play("chest", x);
     R.runeDrop = { x, y: R.chestRect.y + 29, since: R.time };
     floater(x, R.chestRect.y - 4, "+1 руна навыка", "#ddd3ff");
-    const coins = (locationLoot()?.chest ?? L.coinPerChest) + R.sim.stats.chestCoins;
+    const coins = locationLoot()?.chest ?? L.coinPerChest;
     for (let left = coins; left > 0; left -= 6) spawnItem("coin", x, Math.min(6, left));
   }
   function skillNotice(id) {
@@ -896,7 +903,14 @@ DWR.Run = (function () {
       if (e.armor > 0) bar(ctx, e.x, barY + 10, width, 6, e.armor / e.maxArmor, "#a8cce7");
       const showName = showsBossName(e);
       if (showName) text(ctx, e.def.name, e.x, barY - 10, "600 18px", "#f6ddcf", "center");
-      if (visible) drawStatusBadges(ctx, e, showName ? 23 : 0, height);
+      if (visible) {
+        const statusOffset = showName ? 23 : 0;
+        drawStatusBadges(ctx, e, statusOffset, height);
+        if (e.effects.has("hunterMark")) {
+          const top = e.effects.size > 1 ? statusBadgeY(height, statusOffset) : barY - statusOffset;
+          drawHunterMark(ctx, e.x, top);
+        }
+      }
       ctx.restore();
     } else if (e.def.death && p.poseT < 1) drawBossDeathFx(ctx, e, p.poseT);
   }
@@ -1082,10 +1096,23 @@ DWR.Run = (function () {
     ctx.restore();
   }
 
+  const statusBadgeY = (height, offset) => Math.max(3, FLOOR - height - 46 - offset);
+
+  function drawHunterMark(ctx, x, top) {
+    const icon = DWR.Assets.statusIcons.hunterMark;
+    if (!icon?.naturalWidth) return;
+    const size = 36;
+    const y = Math.max(3, top - size - 4 + 2 * Math.sin(R.time * 6));
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(icon, x - size / 2, y, size, size);
+    ctx.restore();
+  }
+
   function drawStatusBadges(ctx, unit, offset = 0, height = unit.h) {
-    const statuses = DWR.Sim.activeStatuses(unit);
+    const statuses = DWR.Sim.activeStatuses(unit).filter(status => status.id !== "hunterMark");
     const size = 27, advance = size + 5;
-    const y = Math.max(3, FLOOR - height - 46 - offset);
+    const y = statusBadgeY(height, offset);
     ctx.save();
     ctx.imageSmoothingEnabled = false;
     for (const [i, status] of statuses.entries()) {

@@ -41,8 +41,9 @@ DWR.Upgrade = (function () {
     rDmg: "arrow", rSpeed: "swift", rHp: "heart", rFan: "fan", multishotHaste: "hourglass",
     multishotCost: "efficiency", rExtraArrow: "spread", rPrecision: "arrow", preciseShotHaste: "hourglass",
     preciseShotCost: "efficiency", preciseBoss: "skull", rFocusKill: "target", rFocusRegen: "cycle",
+    hunterMarkDamage: "burst", hunterMarkDuration: "hourglass", hunterMarkHaste: "swift",
     raidCoins: "coin", bossCoins: "skull", chestCoins: "chest", roomCoins: "scroll", raidVictoryCoins: "trophy",
-    lootReach: "hand", autoCoins: "magnet", panelSlots: "slots",
+    lootReach: "hand", autoCoins: "magnet", panelSlots: "slots", purchasedRunes: "rune",
     wCrit: "criticalBlade", pCrit: "glow", rCrit: "eye"
   };
   const ICON_PATHS = {
@@ -89,6 +90,7 @@ DWR.Upgrade = (function () {
     skull: "M7 21v-4l-3-2V8l3-4h10l3 4v7l-3 2v4zM7 11h2m6 0h2m-6 4h2m-3 3v3m4-3v3",
     scroll: "M6 4h13v13m-13-13H3v4h3m0-4v16h13l2-3h-9l-2 3m-1-9h7m-7 3h5",
     coin: "M16 10a6.5 6.5 0 1 1-13 0 6.5 6.5 0 1 1 13 0zM18 8a6.5 6.5 0 1 1-7 11M9.5 7v6m-2-3h4",
+    rune: "M7 3h10l3 4v10l-4 4H8l-4-4V7zM9 17V8l6 4-6 2m3-1 3 4",
     chest: "M3 11q0-6 5-6h8q5 0 5 6v8H3zM3 11h18m-11 0v4h4v-4M7 6v5m10-5v5",
     trophy: "M7 3h10v8l-2 4H9l-2-4zm0 3H3v4l4 3m10-7h4v4l-4 3m-5 2v5m-5 1h10",
     slots: "M3 5h8v6H3zm0 9h8v6H3zM14 5h7v6h-7zm3.5 9v6m-3-3h6",
@@ -223,6 +225,7 @@ DWR.Upgrade = (function () {
   }
 
   function skillIcon(node, owner) {
+    if (node.id === "hunterMark") return nodeIcon("target", owner);
     return nodeIcon(node.effect.unlockSkill || SKILL_ICONS[node.id] || SKILL_ICONS[node.effect.stat] || "spark", owner);
   }
 
@@ -286,7 +289,8 @@ DWR.Upgrade = (function () {
     const count = S.nodeCount(node.id);
     let action;
     if (count >= node.max) {
-      action = '<div class="up-requirement up-complete">✓ Изучено полностью</div>';
+      const label = node.effect.stat === "purchasedRunes" ? "Все руны куплены" : "Изучено полностью";
+      action = `<div class="up-requirement up-complete">✓ ${label}</div>`;
     } else {
       const price = S.nodePrice(node.id), buyable = S.nodeBuyable(node.id), rune = S.nodeCurrency(node.id) === "runes";
       const label = buyable ? (pinned ? (rune ? "Открыть" : "Купить") : "Закрепите навык")
@@ -439,7 +443,7 @@ DWR.Upgrade = (function () {
   }
 
   function resetDialog() {
-    const { cost, invested, hasPurchases, affordable } = S.skillResetInfo();
+    const { cost, invested, purchasedRunes, hasPurchases, affordable } = S.skillResetInfo();
     return `<dialog class="scr-dialog" id="up-reset-dialog" aria-labelledby="up-reset-title" aria-describedby="up-reset-cost up-reset-refund">
       <form method="dialog">
         <header class="scr-dialog-header">
@@ -449,7 +453,9 @@ DWR.Upgrade = (function () {
         <div class="scr-confirm-description up-reset-description">
           <p id="up-reset-cost">Стоимость сброса — <strong>${cost.toLocaleString("ru-RU")} монет</strong>.</p>
           <p id="up-reset-refund">${hasPurchases
-            ? `Возврат вложений — монеты <strong>${invested.coins.toLocaleString("ru-RU")}</strong> · руны <strong>${invested.runes.toLocaleString("ru-RU")}</strong>.<br>Панель навыков вернётся к стартовой.`
+            ? `Возврат вложений — монеты <strong>${invested.coins.toLocaleString("ru-RU")}</strong> · руны <strong>${invested.runes.toLocaleString("ru-RU")}</strong>.
+              ${purchasedRunes ? `<br>Купленные руны будут списаны (<strong>${purchasedRunes.toLocaleString("ru-RU")}</strong>).` : ""}
+              <br>Панель навыков вернётся к стартовой.`
             : "В дереве пока нет покупок для сброса."}</p>
           ${hasPurchases && !affordable ? "<p class='up-reset-shortfall'>На балансе недостаточно монет для оплаты сброса.</p>" : ""}
         </div>
@@ -499,7 +505,7 @@ DWR.Upgrade = (function () {
           <div class="up-header-right">
             <div class="up-wallet" role="group" aria-label="Баланс">
               <span class="up-balance"><img src="assets/out/coin.png" alt=""> <b>${S.data.coins}</b> монет</span>
-              <span class="up-balance up-balance-runes" title="Руны открывают активные навыки. Награда за первую победу в локации"><img src="assets/out/rune.png" alt="">Руны <b>${S.data.runes}</b></span>
+              <span class="up-balance up-balance-runes" title="Руны открывают активные навыки. Их можно получить из сундуков или купить в ветке «Рейд»"><img src="assets/out/rune.png" alt="">Руны <b>${S.data.runes}</b></span>
             </div>
             <button type="button" class="btn up-reset" title="Сброс навыков" aria-label="Сброс навыков"
               aria-haspopup="dialog" aria-controls="up-reset-dialog">

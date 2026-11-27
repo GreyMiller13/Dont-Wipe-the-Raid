@@ -94,7 +94,7 @@ check("лечение выбирает меньшее текущее HP и тр�
   ranger.hp === ranger.maxHp && warrior.hp === warrior.maxHp - 6 && priest.mana === priest.manaMax - heal.cost);
 check("лечение уходит на перезарядку", S.skillStatus(run, "heal").left === DWR.CONFIG.heroes.priest.healCD);
 check("руна открывает фаербол и ставит его в свободный слот", DWR.State.buyNode("fireball") &&
-  DWR.State.data.runes === 0 && DWR.State.data.panel[2] === "fireball" && !DWR.State.nodeBuyable("fireball"));
+  DWR.State.data.runes === 0 && DWR.State.data.panel[3] === "fireball" && !DWR.State.nodeBuyable("fireball"));
 run.equipped.add("fireball");
 S.setAuto(run, "fireball", true);
 S.tick(run, heal.animation);
@@ -311,6 +311,41 @@ try {
 
 // --- 9. Новые навыки, запасы и порядок автоатак ---
 const State = DWR.State, skills = DWR.CONFIG.skills;
+State.reset();
+run = prepareForge(0);
+const [unmarkedEnemy, markedEnemy] = run.enemies;
+check("метка доступна на третьем слоте с нулевым фокусом, отмечает только выбранную цель и уходит на перезарядку",
+  State.nodeCount("hunterMark") === 1 && State.data.panel[2] === "hunterMark" &&
+  S.useTargeted(run, "hunterMark", markedEnemy.uid) && run.heroes.ranger.focus === 0 &&
+  markedEnemy.effects.get("hunterMark")?.left === 5 && !unmarkedEnemy.effects.has("hunterMark") &&
+  S.skillStatus(run, "hunterMark").left === 18 && !S.useTargeted(run, "hunterMark", unmarkedEnemy.uid));
+
+State.data.coins = 20000;
+const markUpgrades = [["hunterMarkDamage", 5], ["hunterMarkDuration", 4], ["hunterMarkHaste", 3]];
+check("улучшения метки покупаются за монеты и ограничены заданным числом рангов", markUpgrades.every(([id, ranks]) =>
+  Array.from({ length: ranks }, () => State.nodeCurrency(id) === "coins" && State.buyNode(id)).every(Boolean) &&
+  !State.nodeBuyable(id)));
+const goblinBossRoom = DWR.CONFIG.locations.dungeon.rooms.at(-1);
+run = prepareForge(goblinBossRoom);
+const markedBoss = run.enemies[0];
+run.equipped.add("powerStrike");
+run.equipped.add("fireball");
+const bossHealth = markedBoss.hp;
+const marked = S.useTargeted(run, "hunterMark", markedBoss.uid);
+check("улучшенная метка действует на босса 7 секунд и перезаряжается за 15 секунд", marked && markedBoss.boss &&
+  markedBoss.effects.get("hunterMark")?.left === 7 && S.skillStatus(run, "hunterMark").left === 15);
+const warriorHit = strikeFor(run, markedBoss, 50);
+const priestHit = S.useTargeted(run, "fireball", markedBoss.uid);
+stepFor(run, 1.2);
+check("на максимальном ранге метка усиливает урон и воина, и жрицы по боссу на 20%",
+  warriorHit && priestHit && near(bossHealth - markedBoss.hp, (50 + fireball.dmg) * 1.2));
+stepFor(run, 5.8);
+const healthAfterMark = markedBoss.hp;
+strikeFor(run, markedBoss, 50);
+stepFor(run, 1.2);
+check("по истечении метки урон возвращается к обычному", !markedBoss.effects.has("hunterMark") &&
+  near(healthAfterMark - markedBoss.hp, 50));
+
 State.reset();
 State.data.coins = 20000;
 State.data.runes = 9;
@@ -744,7 +779,7 @@ State.data.coins = 20000;
 State.data.runes = 4;
 check("Праведная ярость и Шумовая бомба скрыты до открытия родительских навыков",
   !State.nodeUnlocked("righteousFury") && !State.nodeUnlocked("noiseBomb"));
-for (const id of ["panelSlots", "block", "righteousFury", "bomb", "noiseBomb"]) State.buyNode(id);
+for (const id of ["panelSlots", "panelSlots", "block", "righteousFury", "bomb", "noiseBomb"]) State.buyNode(id);
 run = prepareForge(rangedRoom);
 const furyWarrior = run.heroes.warrior;
 furyWarrior.rage = 40;
@@ -856,10 +891,38 @@ check("сброс возвращает покупки за вычетом пла
   state.data.panel[0] === "heal" && state.locationCleared("dungeon"));
 state.load();
 check("цена следующего сброса сохраняется и возрастает на 25%", state.skillResetInfo().cost === 125 && !state.resetSkills());
+state.reset();
+state.data.coins = 999;
+check("для покупки первой руны нужно 1000 монет", !state.buyNode("purchasedRunes") &&
+  state.data.runes === DWR.CONFIG.startingRunes);
+state.data.coins = 7800;
+check("рейд продаёт ровно три руны за 1000, 2500 и 4000 монет", [1000, 2500, 4000].every(price =>
+  state.nodeCurrency("purchasedRunes") === "coins" && state.nodePrice("purchasedRunes") === price && state.buyNode("purchasedRunes")) &&
+  state.data.runes === DWR.CONFIG.startingRunes + 3 && state.data.coins === 300 && !state.buyNode("purchasedRunes") &&
+  state.data.raidStats.runes === 0);
+state.buyNode("powerStrike");
+state.buyNode("block");
+state.load();
+check("купленные руны сохраняются и списываются при сбросе после возврата вложений",
+  state.nodeCount("purchasedRunes") === 3 && state.data.runes === 2 &&
+  state.resetSkills() && state.data.runes === DWR.CONFIG.startingRunes && state.data.coins === 7700 &&
+  state.nodeCount("purchasedRunes") === 0 && !state.hasSkill("block"));
+savedRaidState = JSON.stringify({ started: true, coins: 1000, runes: 1, upgrades: { raidCoins: 1, chestCoins: 2 },
+  upgradeSpent: { coins: 121, runes: 0 } });
+state.load();
+check("купленные ранги находки становятся трофеями, а сброс учитывает фактические цены",
+  state.stats().victoryTrophyRank === 2 && state.skillResetInfo().invested.coins === 121 &&
+  state.nodePrice("chestCoins") === 330 && state.buyNode("chestCoins") &&
+  state.stats().victoryTrophyRank === 3 && state.skillResetInfo().invested.coins === 451);
+savedRaidState = JSON.stringify({ started: true, coins: 1000, runes: 1, upgrades: { chestCoins: 2 } });
+state.load();
+check("сброс трофеев в сохранении без журнала использует старые цены находки",
+  state.stats().victoryTrophyRank === 2 && state.skillResetInfo().invested.coins === 61);
 savedRaidState = JSON.stringify({ started: true, panel: ["heal", null, null, null, null] });
 state.load();
-check("в старом сохранении провокация изучена, а выбранные игроком слоты сохранены",
-  state.nodeCount("taunt") === 1 && state.hasSkill("taunt") && !state.data.panel.includes("taunt"));
+check("в старом сохранении стартовые навыки изучены, а выбранные игроком слоты сохранены",
+  state.nodeCount("taunt") === 1 && state.hasSkill("taunt") && state.hasSkill("hunterMark") &&
+  !state.data.panel.includes("taunt") && !state.data.panel.includes("hunterMark"));
 savedRaidState = JSON.stringify({ started: true, coins: 200, runes: 0, upgrades: { powerStrike: 1, wDmg: 2 } });
 state.load();
 check("старое сохранение без истории покупок возвращает стоимость известных рангов",
@@ -891,8 +954,9 @@ const priceStep = id => DWR.skillRankPrice(state.nodeDef(id), 2) / DWR.skillRank
 const normalPriceSteps = ["wDmg", "wTempo", "wArmor", "wStride", "rExtraArrow"].map(priceStep);
 check("типовой процент роста выше у узлов с меньшим числом рангов",
   normalPriceSteps.every((step, i) => i === 0 || step > normalPriceSteps[i - 1]));
-check("снижение стоимости навыка сохраняет дорогой второй ранг и повышает цену третьего",
-  [1, 2, 3].every((rank, i) => DWR.skillRankPrice(state.nodeDef("blockCost"), rank) === [500, 4000, 7000][i]));
+check("снижение расхода ресурсов стоит 500, 1500 и 3000 монет по рангам",
+  pricedNodes.filter(node => node.id.endsWith("Cost") && node.id !== "multishotCost").every(node =>
+    Array.from({ length: node.max }, (_, i) => DWR.skillRankPrice(node, i + 1) === [500, 1500, 3000][i]).every(Boolean)));
 
 // --- Тир II: пороги открытия, урон и защита ---
 const masteries = pricedNodes.filter(node => node.tier === 2);

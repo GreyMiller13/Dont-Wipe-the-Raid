@@ -137,7 +137,7 @@ DWR.PanelEditor = (function () {
         const action = DWR.Panel.actionHint(sk);
         const detail = Object.hasOwn(stocks, id)
           ? `${stocks[id] ? `На старте ×${stocks[id]}` : "Подбирается в бою"} · ${action}`
-          : `${sk.cost} ${RESOURCES[sk.res]} · ${action}`;
+          : `${sk.cost === 0 ? "Без затрат" : sk.cost + " " + RESOURCES[sk.res]} · ${action}`;
         return `<button class="pe-option" draggable="true" data-drag-skill="${id}" onclick="DWR.PanelEditor._place('${id}')">
           ${icon(id)} <span><strong>${esc(sk.name)}</strong><small>${detail}</small></span>
           <span class="pe-add" aria-hidden="true">+</span>

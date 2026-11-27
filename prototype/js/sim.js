@@ -633,7 +633,7 @@ DWR.Sim = (function () {
   }
 
   function effectMultiplier(unit, stat, value = 1) {
-    for (const id of unit.effects.keys()) value *= C().effects[id]?.[stat] ?? 1;
+    for (const [id, status] of unit.effects) value *= status[stat] ?? C().effects[id]?.[stat] ?? 1;
     return value;
   }
 
@@ -1583,6 +1583,11 @@ DWR.Sim = (function () {
 
   // В подсказке — сила основного эффекта до крита и защиты цели.
   function skillEffect(run, id, target) {
+    if (id === "hunterMark") {
+      const mark = C().skills.hunterMark;
+      return { damageBonus: mark.damageBonus + (run.stats.hunterMarkDamage || 0),
+        duration: mark.durSec + (run.stats.hunterMarkDuration || 0) };
+    }
     const amount = skillAmount(run, id, target);
     if (amount === null) return null;
     const spec = C().skills[id];
@@ -1596,7 +1601,7 @@ DWR.Sim = (function () {
 
   function skillStatus(run, skillId) {
     const s = C().skills[skillId], h = run.heroes[s.owner];
-    const cost = Math.max(1, s.cost - (run.stats[skillId + "Cost"] || 0));
+    const cost = s.cost === 0 ? 0 : Math.max(1, s.cost - (run.stats[skillId + "Cost"] || 0));
     const left = s.type === "auto" ? Math.max(0, h.atkT) : (run.skillCooldowns.get(skillId) || 0);
     const cooldown = skillId === "heal" ? C().heroes.priest.healCD : s.cooldown;
     const duration = s.type === "auto" ? h.interval : Math.max(1, cooldown - (run.stats[skillId + "Haste"] || 0));
@@ -1632,6 +1637,13 @@ DWR.Sim = (function () {
   function castTargeted(run, skillId, e) {
     const s = C().skills[skillId];
     const h = run.heroes[s.owner];
+    if (skillId === "hunterMark") {
+      if (!spendSkill(run, skillId, h, s.res)) return false;
+      const { damageBonus, duration } = skillEffect(run, skillId);
+      applyStatus(e, skillId, duration);
+      e.effects.get(skillId).damageTakenMultiplier = 1 + damageBonus;
+      return true;
+    }
     if (s.owner === "warrior" && !canWarriorTarget(run, e)) return false;
     e = redirectHeroAttack(run, h, e);
     if (s.owner === "warrior" && !canWarriorTarget(run, e)) return false;
